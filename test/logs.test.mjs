@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
-import { parseClaudeSession, parseCodexSession } from "../dist/logs.js";
+import { parseClaudeSession, parseCodexSession, parseMoSession } from "../dist/logs.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -36,6 +36,20 @@ test("codex parser reads real user/assistant turns, skips developer + injected p
   assert.ok(!JSON.stringify(session.turns).includes("AGENTS.md"), "injected context excluded");
 });
 
+test("mo parser reads user/assistant turns, adds tool markers, skips meta + tool_result", () => {
+  const session = parseMoSession(path.join(here, "fixtures", "mo-session.jsonl"));
+  assert.ok(session);
+  assert.equal(session.harness, "mo");
+  assert.equal(session.turns.length, 3, "user + 2 assistant; session_meta/tool_result/model_switch excluded");
+  assert.equal(session.turns[0].role, "user");
+  assert.equal(session.turns[0].text, "add retry with backoff to the client");
+  assert.equal(session.title, "add retry with backoff to the client");
+  assert.ok(session.turns[1].text.includes("[tool: edit_file]"), "tool call surfaces as a marker");
+  assert.ok(!JSON.stringify(session.turns).includes("file edited"), "tool_result excluded");
+  assert.equal(session.started_at_ms, 1785522432058, "started_at from the session_meta header");
+});
+
 test("empty or unreadable file yields null, not a throw", () => {
   assert.equal(parseClaudeSession("/nonexistent/file.jsonl"), null);
+  assert.equal(parseMoSession("/nonexistent/file.jsonl"), null);
 });

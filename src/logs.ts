@@ -35,6 +35,11 @@ export function codexSessionsDir(): string {
   return process.env.SESSIONS_MCP_CODEX_DIR ?? path.join(os.homedir(), ".codex", "sessions");
 }
 
+/** mo's sessions root — `~/.mo/sessions/<id>.jsonl`, with an optional `<id>.name` title sidecar. */
+export function moSessionsDir(): string {
+  return process.env.SESSIONS_MCP_MO_DIR ?? path.join(os.homedir(), ".mo", "sessions");
+}
+
 /** Every *.jsonl under `root` (one directory level of project folders, then files), newest first. */
 function jsonlFilesUnder(root: string): string[] {
   if (!fs.existsSync(root)) return [];
@@ -182,7 +187,71 @@ export function parseCodexSession(file: string): LocalSession | null {
   };
 }
 
-/** All parseable local sessions, both harnesses, newest first, capped at `limit` files per root. */
+/** Assemble the visible text of a mo `assistant_turn`: its content plus a `[tool: name]` marker per
+ *  tool call, so the transcript shows what the agent did (parity with the Claude parser's markers). */
+function moAssistantText(entry: any): string {
+  const parts: string[] = [];
+  if (typeof entry.content === "string" && entry.content.trim()) parts.push(entry.content.trim());
+  for (const call of Array.isArray(entry.tool_calls) ? entry.tool_calls : []) {
+    if (call?.name) parts.push(`[tool: ${call.name}]`);
+  }
+  return parts.join("\n");
+}
+
+/** The user-chosen name from the `<id>.name` sidecar beside a mo transcript, if present. */
+function readMoName(transcriptFile: string): string | undefined {
+  try {
+    const name = fs.readFileSync(transcriptFile.replace(/\.jsonl$/, ".name"), "utf8").trim();
+    return name || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Parse one mo session transcript (`~/.mo/sessions/<id>.jsonl`). Each line is a self-describing
+ *  event `{schema_version, recorded_at_ms, type, …}`; we keep `user` and `assistant_turn` as turns
+ *  and skip the rest (session_meta header, tool_result, model_switch, compaction summary). Null when
+ *  it holds no usable turns. */
+export function parseMoSession(file: string): LocalSession | null {
+  const turns: Turn[] = [];
+  let startedAt = 0;
+  let lines: string[];
+  try {
+    lines = fs.readFileSync(file, "utf8").split("\n");
+  } catch {
+    return null;
+  }
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let entry: any;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue; // fail soft: append-only log, a torn final line is normal
+    }
+    if (!startedAt && typeof entry.recorded_at_ms === "number") startedAt = entry.recorded_at_ms;
+    if (entry.type === "user") {
+      const text = typeof entry.content === "string" ? entry.content.trim() : "";
+      if (text) turns.push({ role: "user", text });
+    } else if (entry.type === "assistant_turn") {
+      const text = moAssistantText(entry);
+      if (text) turns.push({ role: "assistant", text });
+    }
+    // session_meta / tool_result / model_switch / summary / other: not transcript turns.
+  }
+  if (turns.length === 0) return null;
+  const firstUser = turns.find((turn) => turn.role === "user");
+  return {
+    session_id: path.basename(file, ".jsonl"),
+    harness: "mo",
+    started_at_ms: startedAt || Math.floor(fs.statSync(file).mtimeMs),
+    title: (readMoName(file) ?? firstUser?.text ?? "Agent session").slice(0, 120),
+    turns,
+    mtime_ms: fs.statSync(file).mtimeMs,
+  };
+}
+
+/** All parseable local sessions across harnesses, newest first, capped at `limit` files per root. */
 export function localSessions(limit = 50): LocalSession[] {
   const sessions: LocalSession[] = [];
   for (const file of jsonlFilesUnder(claudeProjectsDir()).slice(0, limit)) {
@@ -191,6 +260,10 @@ export function localSessions(limit = 50): LocalSession[] {
   }
   for (const file of jsonlFilesUnder(codexSessionsDir()).slice(0, limit)) {
     const parsed = parseCodexSession(file);
+    if (parsed) sessions.push(parsed);
+  }
+  for (const file of jsonlFilesUnder(moSessionsDir()).slice(0, limit)) {
+    const parsed = parseMoSession(file);
     if (parsed) sessions.push(parsed);
   }
   return sessions.sort((a, b) => b.started_at_ms - a.started_at_ms);

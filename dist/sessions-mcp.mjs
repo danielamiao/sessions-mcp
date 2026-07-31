@@ -21160,6 +21160,9 @@ function claudeProjectsDir() {
 function codexSessionsDir() {
   return process.env.SESSIONS_MCP_CODEX_DIR ?? path.join(os.homedir(), ".codex", "sessions");
 }
+function moSessionsDir() {
+  return process.env.SESSIONS_MCP_MO_DIR ?? path.join(os.homedir(), ".mo", "sessions");
+}
 function jsonlFilesUnder(root) {
   if (!fs.existsSync(root)) return [];
   const files = [];
@@ -21274,6 +21277,59 @@ function parseCodexSession(file) {
     mtime_ms: fs.statSync(file).mtimeMs
   };
 }
+function moAssistantText(entry) {
+  const parts = [];
+  if (typeof entry.content === "string" && entry.content.trim()) parts.push(entry.content.trim());
+  for (const call of Array.isArray(entry.tool_calls) ? entry.tool_calls : []) {
+    if (call?.name) parts.push(`[tool: ${call.name}]`);
+  }
+  return parts.join("\n");
+}
+function readMoName(transcriptFile) {
+  try {
+    const name = fs.readFileSync(transcriptFile.replace(/\.jsonl$/, ".name"), "utf8").trim();
+    return name || void 0;
+  } catch {
+    return void 0;
+  }
+}
+function parseMoSession(file) {
+  const turns = [];
+  let startedAt = 0;
+  let lines;
+  try {
+    lines = fs.readFileSync(file, "utf8").split("\n");
+  } catch {
+    return null;
+  }
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (!startedAt && typeof entry.recorded_at_ms === "number") startedAt = entry.recorded_at_ms;
+    if (entry.type === "user") {
+      const text = typeof entry.content === "string" ? entry.content.trim() : "";
+      if (text) turns.push({ role: "user", text });
+    } else if (entry.type === "assistant_turn") {
+      const text = moAssistantText(entry);
+      if (text) turns.push({ role: "assistant", text });
+    }
+  }
+  if (turns.length === 0) return null;
+  const firstUser = turns.find((turn) => turn.role === "user");
+  return {
+    session_id: path.basename(file, ".jsonl"),
+    harness: "mo",
+    started_at_ms: startedAt || Math.floor(fs.statSync(file).mtimeMs),
+    title: (readMoName(file) ?? firstUser?.text ?? "Agent session").slice(0, 120),
+    turns,
+    mtime_ms: fs.statSync(file).mtimeMs
+  };
+}
 function localSessions(limit = 50) {
   const sessions = [];
   for (const file of jsonlFilesUnder(claudeProjectsDir()).slice(0, limit)) {
@@ -21282,6 +21338,10 @@ function localSessions(limit = 50) {
   }
   for (const file of jsonlFilesUnder(codexSessionsDir()).slice(0, limit)) {
     const parsed = parseCodexSession(file);
+    if (parsed) sessions.push(parsed);
+  }
+  for (const file of jsonlFilesUnder(moSessionsDir()).slice(0, limit)) {
+    const parsed = parseMoSession(file);
     if (parsed) sessions.push(parsed);
   }
   return sessions.sort((a, b) => b.started_at_ms - a.started_at_ms);

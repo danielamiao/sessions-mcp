@@ -1,0 +1,7 @@
+{"schema_version":1,"recorded_at_ms":1785522432058,"type":"session_meta","cwd":"/tmp/proj","session_id":"s01ABC"}
+{"schema_version":1,"recorded_at_ms":1785522432100,"type":"user","content":"add retry with backoff to the client"}
+{"schema_version":1,"recorded_at_ms":1785522433000,"type":"assistant_turn","content":"I'll add exponential backoff.","reasoning":"planning","tool_calls":[{"id":"c1","name":"edit_file","arguments_json":"{}"}]}
+{"schema_version":1,"recorded_at_ms":1785522434000,"type":"tool_result","tool_call_id":"c1","content":"file edited ok"}
+not json at all
+{"schema_version":1,"recorded_at_ms":1785522435000,"type":"model_switch","to":"glm-5.2"}
+{"schema_version":1,"recorded_at_ms":1785522436000,"type":"assistant_turn","content":"Done — added backoff with jitter.","reasoning":"","tool_calls":[]}

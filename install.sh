@@ -66,6 +66,39 @@ Query: $ARGUMENTS
 MD
 echo "✓ added /share-session and /find-session slash commands"
 
+# 4. mo (Momento's own harness), if installed. mo reads Claude-compatible SessionStart hooks from
+#    ~/.claude/settings.json, so the capture hook wired above already fires on `mo` launch (and the
+#    client now parses ~/.mo/sessions). This step additionally registers the sessions MCP server in
+#    ~/.mo/config.toml so search/share/pull tools work INSIDE `mo agent`. mo gates MCP behind
+#    `mcp_enabled` (off by default), so we also flip that on in the user's personal config.
+if command -v mo >/dev/null 2>&1; then
+  MO_CONFIG="$HOME/.mo/config.toml"
+  mkdir -p "$HOME/.mo"
+  node - "$MO_CONFIG" "$BUNDLE" <<'NODE'
+const fs = require("fs");
+const [configPath, bundle] = process.argv.slice(2);
+let text = "";
+try { text = fs.readFileSync(configPath, "utf8"); } catch {}
+if (text.includes('name = "sessions"')) {
+  console.log("✓ mo: sessions MCP server already registered");
+  process.exit(0);
+}
+// mcp_enabled is a TOP-LEVEL key — it must precede any [table], so insert it before the first table
+// header rather than appending at EOF (which would nest it under the last table).
+if (!/^\s*mcp_enabled\s*=/m.test(text)) {
+  const firstTable = text.search(/^\s*\[/m);
+  const line = "mcp_enabled = true\n";
+  text = firstTable === -1 ? line + text : text.slice(0, firstTable) + line + text.slice(firstTable);
+}
+// A new [[mcp.servers]] header opens its own table scope, so appending at EOF is always well-formed.
+const block =
+  `\n[[mcp.servers]]\nname = "sessions"\ncommand = "node"\nargs = [${JSON.stringify(bundle)}]\n`;
+fs.writeFileSync(configPath, (text.endsWith("\n") || text === "" ? text : text + "\n") + block);
+console.log("✓ mo: registered the sessions MCP server + enabled MCP in ~/.mo/config.toml");
+NODE
+fi
+
 echo
-echo "✓ sessions installed. Start a NEW Claude Code session. Claude will offer to share your work at"
-echo "  natural stopping points; or use  /share-session  ·  /find-session <topic>  ·  or just ask."
+echo "✓ sessions installed. Start a NEW Claude Code (or mo) session. Your agent will offer to share your"
+echo "  work at natural stopping points; or use  /share-session  ·  /find-session <topic>  ·  or just ask."
+echo "  Capture is automatic and cross-harness: Claude Code, Codex, and mo sessions all sync."
