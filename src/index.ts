@@ -79,15 +79,26 @@ if (process.argv.includes("--session-start-hook")) {
   process.exit(0);
 }
 
-/** Project a raw index row to the fields worth showing an agent: the ask, the result, and the
- *  facts — dropping the internal keys (pk/sk/s3_key) and the redundant title. Keeps a result
- *  compact and readable rather than dumping raw DynamoDB rows. */
+/** Format an epoch-ms value to a compact local date-time (or undefined if absent/unparseable). */
+function fmtMs(ms: unknown): string | undefined {
+  const n = typeof ms === "number" ? ms : Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return new Date(n).toISOString().replace("T", " ").slice(0, 16) + " UTC";
+}
+
+/** Project a raw index row to the fields worth showing an agent: the ask, the result, the dates, and
+ *  the facts — dropping the internal keys (pk/sk/s3_key) and the redundant title. Keeps a result
+ *  compact and readable rather than dumping raw DynamoDB rows. The three dates are distinct:
+ *  `session_date` is when the conversation happened (so an OLD session reads as old), `captured` is
+ *  when it was first uploaded into the corpus, `last_updated` is the most recent (re)capture. */
 function presentSession(row: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {
     session_id: row.session_id,
     harness: row.harness,
     turns: row.turns,
-    started_at_ms: row.started_at_ms,
+    session_date: fmtMs(row.started_at_ms), // when the conversation itself happened
+    captured: fmtMs(row.captured_at_ms), // when it entered the corpus
+    last_updated: fmtMs(row.updated_at_ms) ?? fmtMs(row.captured_at_ms), // last (re)capture
     asked: row.excerpt, // the opening request
     summary: row.summary, // what the session did — the LLM summary (the useful part)
   };
