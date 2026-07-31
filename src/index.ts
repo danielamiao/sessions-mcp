@@ -19,18 +19,6 @@ import * as api from "./api.js";
  *  Declared here (above the CLI dispatch) so it's initialized before the top-level `--sync` runs. */
 const MIN_RESYNC_MS = 10 * 60 * 1000;
 
-/** Background-watcher cadence. Claude Code fires a per-turn `Stop` hook that triggers `--sync`, so a
- *  long session stays captured; mo dispatches only `SessionStart` (no per-turn hook), so a long mo
- *  session would otherwise capture only on the NEXT launch. The watcher — spawned at SessionStart —
- *  polls on this cadence and lets [`syncLocalSessions`]'s own {@link MIN_RESYNC_MS} debounce decide
- *  when a still-growing session actually re-uploads. */
-const WATCH_POLL_MS = 3 * 60 * 1000;
-/** Exit the watcher after this many consecutive quiet polls (~no session grew) — the session has
- *  almost certainly ended, and mo gives us no SessionEnd signal to exit on. */
-const WATCH_IDLE_EXIT_ROUNDS = 10;
-/** Hard lifetime cap so a watcher can never linger indefinitely. */
-const WATCH_MAX_LIFETIME_MS = 4 * 60 * 60 * 1000;
-
 // Headless capture: `--sync` uploads + summarizes every changed local session, then exits. This is
 // what the SessionStart/SessionEnd hooks run, so EVERY session is captured automatically — capture
 // never waits for the user to call a tool. (Sharing stays a separate, explicit opt-in: capturing a
@@ -41,57 +29,17 @@ if (process.argv.includes("--sync")) {
   process.exit(0);
 }
 
-// Background capture watcher: `--watch` polls while a session runs, so a harness without a per-turn
-// hook (mo fires only SessionStart) still captures a long-running session live, not just on next
-// launch. Singleton (a lock keeps one watcher across concurrent session starts), debounced by
-// syncLocalSessions, and self-exiting when quiet or past a hard lifetime cap.
-if (process.argv.includes("--watch")) {
-  await runWatcher();
-  process.exit(0);
-}
-
-// A function declaration (hoisted), so `runWatcher` — invoked in the top-level `--watch` branch above
-// this line — can call it without tripping a const temporal-dead-zone.
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/** Poll-and-capture until the session goes quiet (or the lifetime cap). Bails immediately if another
- *  watcher already holds the lock, so the SessionStart-spawned watchers collapse to one. */
-async function runWatcher(): Promise<void> {
-  if (!api.claimWatchLock(WATCH_POLL_MS * 3)) return; // another watcher is live
-  const startedAt = Date.now();
-  let idleRounds = 0;
+/** Fire the capture sync in a DETACHED background process and return at once — so a SessionStart
+ *  hook never blocks the user while sessions upload + summarize. Best-effort; failures are silent. */
+function spawnBackgroundSync(): void {
   try {
-    for (;;) {
-      api.touchWatchLock();
-      let uploaded = 0;
-      try {
-        uploaded = await syncLocalSessions();
-      } catch {
-        /* a transient upload failure must not kill the watcher */
-      }
-      idleRounds = uploaded > 0 ? 0 : idleRounds + 1;
-      if (WATCH_IDLE_EXIT_ROUNDS <= idleRounds) break; // quiet → session ended
-      if (WATCH_MAX_LIFETIME_MS <= Date.now() - startedAt) break; // hard cap
-      await sleep(WATCH_POLL_MS);
-    }
-  } finally {
-    api.clearWatchLock();
-  }
-}
-
-/** Fire a DETACHED background `mo`-mode process and return at once — so a SessionStart hook never
- *  blocks the user. Best-effort; a spawn failure must never break the session. */
-function spawnDetached(mode: "--sync" | "--watch"): void {
-  try {
-    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), mode], {
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "--sync"], {
       detached: true,
       stdio: "ignore",
     });
     child.unref();
   } catch {
-    /* capture is best-effort */
+    /* capture is best-effort; a spawn failure must never break the session */
   }
 }
 
@@ -101,11 +49,9 @@ function spawnDetached(mode: "--sync" | "--watch"): void {
 // tools have no UI, so without this the capability is invisible until the user happens to ask.
 // Wired (opt-in) by install.sh into the user's Claude Code settings.
 if (process.argv.includes("--session-start-hook")) {
-  // Automatic capture: a one-shot sync of anything that ended since last time, plus a background
-  // watcher that keeps capturing THIS session as it grows (the fix for a long mo session that fires
-  // no per-turn hook). Both detached, so the session opens instantly; the watcher is a singleton.
-  spawnDetached("--sync");
-  spawnDetached("--watch");
+  // Automatic capture: kick a background sync of any sessions that ended since last time (detached,
+  // so this returns instantly and never delays the session opening).
+  spawnBackgroundSync();
   let context =
     "The user has the 'sessions' MCP tools installed. You can share the CURRENT session as a " +
     "public link (share_session) — anyone with the link can view the session AND pull its full " +
