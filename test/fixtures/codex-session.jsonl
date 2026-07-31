@@ -1,0 +1,6 @@
+{"timestamp":"2026-07-30T11:00:00.000Z","type":"session_meta","payload":{"id":"xyz"}}
+{"timestamp":"2026-07-30T11:00:00.500Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"<permissions instructions>\nsandbox stuff"}]}}
+{"timestamp":"2026-07-30T11:00:00.800Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /repo\nlots of injected context"}]}}
+{"timestamp":"2026-07-30T11:00:01.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Refactor the parser"}]}}
+{"timestamp":"2026-07-30T11:00:09.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Split it into two passes."}]}}
+{"timestamp":"2026-07-30T11:00:10.000Z","type":"response_item","payload":{"type":"function_call","name":"shell"}}

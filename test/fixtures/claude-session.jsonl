@@ -1,0 +1,7 @@
+{"type":"custom-title","sessionId":"abc","customTitle":"t"}
+{"type":"user","isSidechain":false,"timestamp":"2026-07-30T10:00:00.000Z","message":{"role":"user","content":"Fix the flaky auth test"},"sessionId":"abc","uuid":"u1"}
+{"type":"assistant","isSidechain":false,"timestamp":"2026-07-30T10:00:05.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Looking at the test now."},{"type":"tool_use","name":"Bash","input":{}}]},"sessionId":"abc","uuid":"u2"}
+{"type":"user","isSidechain":true,"timestamp":"2026-07-30T10:00:06.000Z","message":{"role":"user","content":"subagent line must not appear"},"sessionId":"abc","uuid":"u3"}
+{"type":"user","isMeta":true,"timestamp":"2026-07-30T10:00:07.000Z","message":{"role":"user","content":"meta line must not appear"},"sessionId":"abc","uuid":"u4"}
+not json at all
+{"type":"assistant","isSidechain":false,"timestamp":"2026-07-30T10:00:10.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Fixed; the mock clock was the culprit."}]},"sessionId":"abc","uuid":"u5"}
