@@ -11,22 +11,37 @@ the agent itself. A small MCP server: no account, no signup, one-command install
 
 ## Install (one command)
 
-You keep using Claude Code / Codex exactly as-is. From a checkout of this repo:
+You keep using Claude Code / Codex exactly as-is. Needs `node`.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/danielamiao/sessions-mcp/main/install.sh | bash
+```
+
+Or from a checkout, which installs the bundle you just built instead of downloading one:
 
 ```bash
 ./install.sh
 ```
 
+Either way the server lands at `~/.sessions-mcp/sessions-mcp.mjs` and the config points there, so
+you can delete the checkout afterwards. Re-running is safe, and switches an existing install to the
+current path rather than leaving a stale one behind.
+
 That registers the MCP server and (for Claude Code) a hook so the agent offers to share your work at
 natural stopping points, plus `/share-session` and `/find-session` slash commands. Start a **new**
 agent session afterward.
+
+> Piping a script into `bash` means running whatever that URL serves today. This one has no CI and
+> the bundle it fetches is a hand-built artifact committed to the repo, so nothing signs or
+> reproduces it — read [`install.sh`](install.sh) first if that matters to you, or clone and use the
+> checkout path.
 
 Codex: add to `~/.codex/config.toml`:
 
 ```toml
 [mcp_servers.sessions]
 command = "node"
-args = ["/absolute/path/to/this/repo/dist/sessions-mcp.mjs"]
+args = ["/Users/you/.sessions-mcp/sessions-mcp.mjs"]
 ```
 
 Then just ask your agent: *"share this session"* or *"find my session about X."*
