@@ -8,6 +8,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
+import { redactSecrets } from "./redact.js";
+
 /** One neutral transcript turn (the API's upload contract). */
 export interface Turn {
   role: string;
@@ -251,20 +253,32 @@ export function parseMoSession(file: string): LocalSession | null {
   };
 }
 
-/** All parseable local sessions across harnesses, newest first, capped at `limit` files per root. */
+/** Scrub secret-shaped text out of a parsed session. Every session reaches the upload through
+ *  `localSessions`, so scrubbing here covers all three parsers — and a fourth harness gets it
+ *  without anyone remembering to ask. */
+function scrubbed(session: LocalSession): LocalSession {
+  return {
+    ...session,
+    title: redactSecrets(session.title),
+    turns: session.turns.map((turn) => ({ ...turn, text: redactSecrets(turn.text) })),
+  };
+}
+
+/** All parseable local sessions across harnesses, newest first, capped at `limit` files per root.
+ *  Secrets are scrubbed here, before any caller can upload one. */
 export function localSessions(limit = 50): LocalSession[] {
   const sessions: LocalSession[] = [];
   for (const file of jsonlFilesUnder(claudeProjectsDir()).slice(0, limit)) {
     const parsed = parseClaudeSession(file);
-    if (parsed) sessions.push(parsed);
+    if (parsed) sessions.push(scrubbed(parsed));
   }
   for (const file of jsonlFilesUnder(codexSessionsDir()).slice(0, limit)) {
     const parsed = parseCodexSession(file);
-    if (parsed) sessions.push(parsed);
+    if (parsed) sessions.push(scrubbed(parsed));
   }
   for (const file of jsonlFilesUnder(moSessionsDir()).slice(0, limit)) {
     const parsed = parseMoSession(file);
-    if (parsed) sessions.push(parsed);
+    if (parsed) sessions.push(scrubbed(parsed));
   }
   return sessions.sort((a, b) => b.started_at_ms - a.started_at_ms);
 }
