@@ -20,8 +20,17 @@ RAW_URL="${SESSIONS_MCP_RAW_URL:-https://raw.githubusercontent.com/danielamiao/s
 PREFIX="${SESSIONS_MCP_HOME:-$HOME/.sessions-mcp}"
 BUNDLE="$PREFIX/sessions-mcp.mjs"
 
-command -v node >/dev/null || { echo "node not found on PATH (the server runs on node)"; exit 1; }
-command -v claude >/dev/null || { echo "Claude Code CLI ('claude') not found on PATH"; exit 1; }
+command -v node >/dev/null || { echo "node not found on PATH (the server runs on node, needs >=18)"; exit 1; }
+
+# Which harnesses are present decides which steps run. Requiring Claude Code would refuse to install
+# on a Codex-only or mo-only machine, even though both are supported — so each harness is wired only
+# if it's here, and only a machine with none of them is a hard failure.
+HAS_CLAUDE=0; command -v claude >/dev/null 2>&1 && HAS_CLAUDE=1
+HAS_CODEX=0;  command -v codex  >/dev/null 2>&1 && HAS_CODEX=1
+HAS_MO=0;     command -v mo     >/dev/null 2>&1 && HAS_MO=1
+if [ 0 -eq $((HAS_CLAUDE + HAS_CODEX + HAS_MO)) ]; then
+  echo "no supported agent found on PATH — install Claude Code, Codex, or mo first"; exit 1
+fi
 
 # Checkout mode only when $0 really names this script on disk. Piped, $0 is "bash", so this is false
 # and we download — deliberately, so `curl | bash` run from inside a stale checkout installs the
@@ -61,10 +70,15 @@ fi
 # 1. MCP server — USER scope so it's available in EVERY project, not just this repo. (Default
 #    `claude mcp add` scope is `local` = current project only, which "disappears" when you cd away.)
 #    Remove any prior local-scoped registration first so re-running upgrades cleanly.
-claude mcp remove sessions >/dev/null 2>&1 || true
-claude mcp add --scope user sessions -- node "$BUNDLE"
+if [ 1 -eq "$HAS_CLAUDE" ]; then
+  claude mcp remove sessions >/dev/null 2>&1 || true
+  claude mcp add --scope user sessions -- node "$BUNDLE"
+fi
 
-# 2. SessionStart hook (awareness + proactive offer + decaying first-run hint)
+# 2. SessionStart hook (awareness + proactive offer + decaying first-run hint). Written whenever
+#    Claude Code OR mo is present: mo reads Claude-compatible hooks from this same file, so a
+#    mo-only machine still needs it.
+if [ 0 -lt $((HAS_CLAUDE + HAS_MO)) ]; then
 SETTINGS="$HOME/.claude/settings.json"
 mkdir -p "$HOME/.claude"
 node - "$SETTINGS" "$BUNDLE" <<'NODE'
@@ -112,13 +126,26 @@ the best matches — what I asked and what each session accomplished — so I ca
 Query: $ARGUMENTS
 MD
 echo "✓ added /share-session and /find-session slash commands"
+fi
+
+# 3b. Codex has no CLI for registering an MCP server and its config is a hand-edited TOML, so print
+#     the block to paste rather than rewriting someone's config out from under them. Printed with
+#     the real absolute path, which is the part that's easy to get wrong by hand.
+if [ 1 -eq "$HAS_CODEX" ]; then
+  echo
+  echo "Codex: add this to ~/.codex/config.toml"
+  echo
+  echo "  [mcp_servers.sessions]"
+  echo "  command = \"node\""
+  echo "  args = [\"$BUNDLE\"]"
+fi
 
 # 4. mo (Momento's own harness), if installed. mo reads Claude-compatible SessionStart hooks from
 #    ~/.claude/settings.json, so the capture hook wired above already fires on `mo` launch (and the
 #    client now parses ~/.mo/sessions). This step additionally registers the sessions MCP server in
 #    ~/.mo/config.toml so search/share/pull tools work INSIDE `mo agent`. mo gates MCP behind
 #    `mcp_enabled` (off by default), so we also flip that on in the user's personal config.
-if command -v mo >/dev/null 2>&1; then
+if [ 1 -eq "$HAS_MO" ]; then
   MO_CONFIG="$HOME/.mo/config.toml"
   mkdir -p "$HOME/.mo"
   node - "$MO_CONFIG" "$BUNDLE" <<'NODE'
@@ -157,6 +184,11 @@ NODE
 fi
 
 echo
-echo "✓ sessions installed. Start a NEW Claude Code (or mo) session. Your agent will offer to share your"
-echo "  work at natural stopping points; or use  /share-session  ·  /find-session <topic>  ·  or just ask."
+echo "✓ sessions installed. Start a NEW agent session."
+if [ 0 -lt $((HAS_CLAUDE + HAS_MO)) ]; then
+  echo "  Your agent will offer to share your work at natural stopping points; or use"
+  echo "  /share-session  ·  /find-session <topic>  ·  or just ask."
+fi
+# Capture reads the logs of every harness it can find, whichever one you launch — but say so only
+# for the ones actually on this machine, so the summary matches what just happened.
 echo "  Capture is automatic and cross-harness: Claude Code, Codex, and mo sessions all sync."

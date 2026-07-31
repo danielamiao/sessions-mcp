@@ -11,7 +11,10 @@ the agent itself. A small MCP server: no account, no signup, one-command install
 
 ## Install (one command)
 
-You keep using Claude Code / Codex exactly as-is. Needs `node`.
+You keep using Claude Code / Codex exactly as-is.
+
+**Needs:** `node` ≥ 18, `bash`, `curl`, and at least one of Claude Code / Codex / mo. macOS and Linux.
+(macOS's stock bash 3.2 is fine. On Alpine, `apk add bash curl` first — neither ships by default.)
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/danielamiao/sessions-mcp/main/install.sh | bash
@@ -27,22 +30,20 @@ Either way the server lands at `~/.sessions-mcp/sessions-mcp.mjs` and the config
 you can delete the checkout afterwards. Re-running is safe, and switches an existing install to the
 current path rather than leaving a stale one behind.
 
-That registers the MCP server and (for Claude Code) a hook so the agent offers to share your work at
-natural stopping points, plus `/share-session` and `/find-session` slash commands. Start a **new**
-agent session afterward.
+The installer wires whichever harnesses it finds — it doesn't require any particular one:
+
+| | what it does |
+|---|---|
+| **Claude Code** | registers the MCP server at user scope, wires the capture hooks, adds `/share-session` + `/find-session` |
+| **mo** | registers the server in `~/.mo/config.toml` and enables MCP; capture hooks come from the Claude-compatible settings file |
+| **Codex** | prints the `~/.codex/config.toml` block to paste — Codex has no CLI to register a server, and its config is hand-edited |
+
+Start a **new** agent session afterward.
 
 > Piping a script into `bash` means running whatever that URL serves today. This one has no CI and
 > the bundle it fetches is a hand-built artifact committed to the repo, so nothing signs or
 > reproduces it — read [`install.sh`](install.sh) first if that matters to you, or clone and use the
 > checkout path.
-
-Codex: add to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.sessions]
-command = "node"
-args = ["/Users/you/.sessions-mcp/sessions-mcp.mjs"]
-```
 
 Then just ask your agent: *"share this session"* or *"find my session about X."*
 
