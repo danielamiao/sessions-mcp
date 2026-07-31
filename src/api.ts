@@ -99,7 +99,8 @@ function syncStatePath(): string {
   return configPath().replace(/config\.json$/, "sync.json");
 }
 
-export function readSyncState(): Record<string, number> {
+type SyncEntry = number | { mtime: number; at: number };
+export function readSyncState(): Record<string, SyncEntry> {
   try {
     return JSON.parse(fs.readFileSync(syncStatePath(), "utf8"));
   } catch {
@@ -107,7 +108,7 @@ export function readSyncState(): Record<string, number> {
   }
 }
 
-export function writeSyncState(state: Record<string, number>): void {
+export function writeSyncState(state: Record<string, SyncEntry>): void {
   fs.mkdirSync(path.dirname(syncStatePath()), { recursive: true });
   fs.writeFileSync(syncStatePath(), JSON.stringify(state));
 }

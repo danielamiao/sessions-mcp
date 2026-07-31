@@ -28,14 +28,19 @@ settings.hooks.SessionStart ??= [];
 if (!JSON.stringify(settings.hooks.SessionStart).includes("--session-start-hook")) {
   settings.hooks.SessionStart.push({ hooks: [{ type: "command", command: `node ${bundle} --session-start-hook` }] });
 }
-// SessionEnd: capture the session that just finished, so every session lands in the corpus
-// automatically (sharing stays a separate, explicit action).
+// SessionEnd: capture the session that just finished.
 settings.hooks.SessionEnd ??= [];
 if (!JSON.stringify(settings.hooks.SessionEnd).includes("--sync")) {
   settings.hooks.SessionEnd.push({ hooks: [{ type: "command", command: `node ${bundle} --sync` }] });
 }
+// Stop (fires each turn): periodic capture of LONG-RUNNING sessions you never end. The upload is
+// time-debounced client-side (a session re-uploads at most every ~10 min), so this stays cheap.
+settings.hooks.Stop ??= [];
+if (!JSON.stringify(settings.hooks.Stop).includes("--sync")) {
+  settings.hooks.Stop.push({ hooks: [{ type: "command", command: `node ${bundle} --sync` }] });
+}
 fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-console.log("✓ hooks wired: automatic capture (SessionStart + SessionEnd) + discoverability");
+console.log("✓ hooks wired: automatic capture (SessionStart + SessionEnd + periodic Stop) + discoverability");
 NODE
 
 # 3. Slash commands (discoverable in the `/` menu)

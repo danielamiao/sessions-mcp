@@ -13,6 +13,12 @@ import { fileURLToPath } from "node:url";
 import { localSessions } from "./logs.js";
 import * as api from "./api.js";
 
+/** Minimum wall-clock gap before re-uploading a session that's still growing. A long-running session
+ *  (one you never "end") is captured on first sight, then re-captured at most this often as it grows
+ *  — so a per-turn Stop hook keeps a live session current without re-summarizing every turn.
+ *  Declared here (above the CLI dispatch) so it's initialized before the top-level `--sync` runs. */
+const MIN_RESYNC_MS = 10 * 60 * 1000;
+
 // Headless capture: `--sync` uploads + summarizes every changed local session, then exits. This is
 // what the SessionStart/SessionEnd hooks run, so EVERY session is captured automatically — capture
 // never waits for the user to call a tool. (Sharing stays a separate, explicit opt-in: capturing a
@@ -89,15 +95,24 @@ function presentSession(row: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-/** Sync changed local sessions up to the corpus; returns how many uploaded. Fail-soft per session. */
+/** Sync changed local sessions up to the corpus; returns how many uploaded. Fail-soft per session.
+ *  First upload of a session is immediate; a grown session re-uploads only after MIN_RESYNC_MS, so
+ *  the periodic (Stop-hook) capture of long-running sessions stays cheap. */
 async function syncLocalSessions(): Promise<number> {
   const state = api.readSyncState();
+  const now = Date.now();
   let uploaded = 0;
   for (const session of localSessions()) {
-    if ((state[session.session_id] ?? 0) >= session.mtime_ms) continue;
+    const prev = state[session.session_id];
+    // prev may be an old-format bare mtime number; normalize.
+    const prevMtime = typeof prev === "number" ? prev : (prev?.mtime ?? 0);
+    const prevAt = typeof prev === "number" ? 0 : (prev?.at ?? 0);
+    const isNew = prevMtime === 0;
+    const grewAndDue = session.mtime_ms > prevMtime && now - prevAt >= MIN_RESYNC_MS;
+    if (!isNew && !grewAndDue) continue;
     try {
       await api.upload(session);
-      state[session.session_id] = session.mtime_ms;
+      state[session.session_id] = { mtime: session.mtime_ms, at: now };
       uploaded += 1;
     } catch (error) {
       console.error(`sessions-mcp: upload ${session.session_id} failed: ${error}`);

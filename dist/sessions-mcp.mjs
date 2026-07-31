@@ -21349,6 +21349,7 @@ function bumpHintCount() {
 }
 
 // src/index.ts
+var MIN_RESYNC_MS = 10 * 60 * 1e3;
 if (process.argv.includes("--sync")) {
   const n = await syncLocalSessions();
   console.error(`sessions: captured ${n} new/changed session(s).`);
@@ -21394,12 +21395,18 @@ function presentSession(row) {
 }
 async function syncLocalSessions() {
   const state = readSyncState();
+  const now = Date.now();
   let uploaded = 0;
   for (const session of localSessions()) {
-    if ((state[session.session_id] ?? 0) >= session.mtime_ms) continue;
+    const prev = state[session.session_id];
+    const prevMtime = typeof prev === "number" ? prev : prev?.mtime ?? 0;
+    const prevAt = typeof prev === "number" ? 0 : prev?.at ?? 0;
+    const isNew = prevMtime === 0;
+    const grewAndDue = session.mtime_ms > prevMtime && now - prevAt >= MIN_RESYNC_MS;
+    if (!isNew && !grewAndDue) continue;
     try {
       await upload(session);
-      state[session.session_id] = session.mtime_ms;
+      state[session.session_id] = { mtime: session.mtime_ms, at: now };
       uploaded += 1;
     } catch (error2) {
       console.error(`sessions-mcp: upload ${session.session_id} failed: ${error2}`);
