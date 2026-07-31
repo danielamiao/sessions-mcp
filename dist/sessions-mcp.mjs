@@ -21126,6 +21126,10 @@ var StdioServerTransport = class {
   }
 };
 
+// src/index.ts
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
 // src/logs.ts
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -21345,7 +21349,23 @@ function bumpHintCount() {
 }
 
 // src/index.ts
+if (process.argv.includes("--sync")) {
+  const n = await syncLocalSessions();
+  console.error(`sessions: captured ${n} new/changed session(s).`);
+  process.exit(0);
+}
+function spawnBackgroundSync() {
+  try {
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "--sync"], {
+      detached: true,
+      stdio: "ignore"
+    });
+    child.unref();
+  } catch {
+  }
+}
 if (process.argv.includes("--session-start-hook")) {
+  spawnBackgroundSync();
   let context = "The user has the 'sessions' MCP tools installed. You can share the CURRENT session as a public link (share_session) \u2014 anyone with the link can view the session AND pull its full transcript into their own agent, so it unfurls in Slack and a teammate can build on it \u2014 or search their PAST agent sessions to reuse earlier work (search_my_sessions). When the user reaches a decision, finishes a task, or lands on a useful conclusion, briefly offer to make it shareable (e.g. \u201Cwant a link to share this?\u201D) \u2014 a one-line offer, not a nag. Only mint a link when the user says yes. When the user asks how they solved something before, or seems to be redoing past work, use search_my_sessions.";
   const shown = bumpHintCount();
   if (shown <= 3) {

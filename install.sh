@@ -23,14 +23,19 @@ const [settingsPath, bundle] = process.argv.slice(2);
 let settings = {};
 try { settings = JSON.parse(fs.readFileSync(settingsPath, "utf8")); } catch {}
 settings.hooks ??= {};
+// SessionStart: discoverability context + a background capture sync (catches sessions that ended).
 settings.hooks.SessionStart ??= [];
 if (!JSON.stringify(settings.hooks.SessionStart).includes("--session-start-hook")) {
   settings.hooks.SessionStart.push({ hooks: [{ type: "command", command: `node ${bundle} --session-start-hook` }] });
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-  console.log("✓ added the SessionStart discoverability hook");
-} else {
-  console.log("✓ SessionStart hook already present");
 }
+// SessionEnd: capture the session that just finished, so every session lands in the corpus
+// automatically (sharing stays a separate, explicit action).
+settings.hooks.SessionEnd ??= [];
+if (!JSON.stringify(settings.hooks.SessionEnd).includes("--sync")) {
+  settings.hooks.SessionEnd.push({ hooks: [{ type: "command", command: `node ${bundle} --sync` }] });
+}
+fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+console.log("✓ hooks wired: automatic capture (SessionStart + SessionEnd) + discoverability");
 NODE
 
 # 3. Slash commands (discoverable in the `/` menu)

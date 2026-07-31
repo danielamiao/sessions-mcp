@@ -1,14 +1,41 @@
 #!/usr/bin/env node
 // The sessions MCP server (stdio): capture/search/share/pull over agent sessions, backed by the
-// Momento gateway sessions API. Capture is lazy — each tool call first syncs local session logs
-// (Claude Code + Codex) that changed since the last upload, so nothing runs in the background and
-// nothing is captured while the tools are unused.
+// Momento gateway sessions API. Capture is AUTOMATIC — the install's SessionStart/SessionEnd hooks
+// run `--sync` in the background, so every session is uploaded + summarized on its own. The tools
+// also sync opportunistically (so a search is always current). Capturing a session only stores it
+// privately under your token; SHARING is a separate, explicit action (share_session mints a link).
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { localSessions } from "./logs.js";
 import * as api from "./api.js";
+
+// Headless capture: `--sync` uploads + summarizes every changed local session, then exits. This is
+// what the SessionStart/SessionEnd hooks run, so EVERY session is captured automatically — capture
+// never waits for the user to call a tool. (Sharing stays a separate, explicit opt-in: capturing a
+// session only stores it privately under your token; nothing is shared until you mint a link.)
+if (process.argv.includes("--sync")) {
+  const n = await syncLocalSessions();
+  console.error(`sessions: captured ${n} new/changed session(s).`);
+  process.exit(0);
+}
+
+/** Fire the capture sync in a DETACHED background process and return at once — so a SessionStart
+ *  hook never blocks the user while sessions upload + summarize. Best-effort; failures are silent. */
+function spawnBackgroundSync(): void {
+  try {
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "--sync"], {
+      detached: true,
+      stdio: "ignore",
+    });
+    child.unref();
+  } catch {
+    /* capture is best-effort; a spawn failure must never break the session */
+  }
+}
 
 // Discoverability hook: `node sessions-mcp.mjs --session-start-hook` emits a SessionStart
 // additionalContext block that makes Claude AWARE of the sessions capability and PROACTIVE about
@@ -16,6 +43,9 @@ import * as api from "./api.js";
 // tools have no UI, so without this the capability is invisible until the user happens to ask.
 // Wired (opt-in) by install.sh into the user's Claude Code settings.
 if (process.argv.includes("--session-start-hook")) {
+  // Automatic capture: kick a background sync of any sessions that ended since last time (detached,
+  // so this returns instantly and never delays the session opening).
+  spawnBackgroundSync();
   let context =
     "The user has the 'sessions' MCP tools installed. You can share the CURRENT session as a " +
     "public link (share_session) — anyone with the link can view the session AND pull its full " +

@@ -5,6 +5,7 @@ the agent itself. A small MCP server: no account, no signup, one-command install
 
 - **Share** the current session as a link. Anyone with the link can view it *and* pull the full
   session into their own agent to build on it.
+- **Automatic capture:** every session is uploaded + summarized on its own — you never have to remember to save. Sharing stays explicit.
 - **Search** your past sessions by meaning ("how did I fix that flaky auth thing") — not just keywords.
 - **Pull** a shared session into your current one to continue where someone left off.
 
