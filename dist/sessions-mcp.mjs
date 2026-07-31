@@ -21423,6 +21423,48 @@ function writeSyncState(state) {
   fs2.mkdirSync(path2.dirname(syncStatePath()), { recursive: true });
   fs2.writeFileSync(syncStatePath(), JSON.stringify(state));
 }
+function watchLockPath() {
+  return configPath().replace(/config\.json$/, "watch.lock");
+}
+function claimWatchLock(staleMs) {
+  const file = watchLockPath();
+  try {
+    fs2.mkdirSync(path2.dirname(file), { recursive: true });
+  } catch {
+    return false;
+  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      fs2.writeFileSync(file, JSON.stringify({ at: Date.now(), pid: process.pid }), { flag: "wx" });
+      return true;
+    } catch {
+      let at = 0;
+      try {
+        at = JSON.parse(fs2.readFileSync(file, "utf8")).at ?? 0;
+      } catch {
+      }
+      if (Date.now() - at < staleMs) return false;
+      try {
+        fs2.unlinkSync(file);
+      } catch {
+        return false;
+      }
+    }
+  }
+  return false;
+}
+function touchWatchLock() {
+  try {
+    fs2.writeFileSync(watchLockPath(), JSON.stringify({ at: Date.now(), pid: process.pid }));
+  } catch {
+  }
+}
+function clearWatchLock() {
+  try {
+    fs2.unlinkSync(watchLockPath());
+  } catch {
+  }
+}
 function bumpHintCount() {
   const file = configPath().replace(/config\.json$/, "hint-count");
   let n = 0;
@@ -21441,14 +21483,45 @@ function bumpHintCount() {
 
 // src/index.ts
 var MIN_RESYNC_MS = 10 * 60 * 1e3;
+var WATCH_POLL_MS = 3 * 60 * 1e3;
+var WATCH_IDLE_EXIT_ROUNDS = 10;
+var WATCH_MAX_LIFETIME_MS = 4 * 60 * 60 * 1e3;
 if (process.argv.includes("--sync")) {
   const n = await syncLocalSessions();
   console.error(`sessions: captured ${n} new/changed session(s).`);
   process.exit(0);
 }
-function spawnBackgroundSync() {
+if (process.argv.includes("--watch")) {
+  await runWatcher();
+  process.exit(0);
+}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+async function runWatcher() {
+  if (!claimWatchLock(WATCH_POLL_MS * 3)) return;
+  const startedAt = Date.now();
+  let idleRounds = 0;
   try {
-    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "--sync"], {
+    for (; ; ) {
+      touchWatchLock();
+      let uploaded = 0;
+      try {
+        uploaded = await syncLocalSessions();
+      } catch {
+      }
+      idleRounds = uploaded > 0 ? 0 : idleRounds + 1;
+      if (WATCH_IDLE_EXIT_ROUNDS <= idleRounds) break;
+      if (WATCH_MAX_LIFETIME_MS <= Date.now() - startedAt) break;
+      await sleep(WATCH_POLL_MS);
+    }
+  } finally {
+    clearWatchLock();
+  }
+}
+function spawnDetached(mode) {
+  try {
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), mode], {
       detached: true,
       stdio: "ignore"
     });
@@ -21457,7 +21530,8 @@ function spawnBackgroundSync() {
   }
 }
 if (process.argv.includes("--session-start-hook")) {
-  spawnBackgroundSync();
+  spawnDetached("--sync");
+  spawnDetached("--watch");
   let context = "The user has the 'sessions' MCP tools installed. You can share the CURRENT session as a public link (share_session) \u2014 anyone with the link can view the session AND pull its full transcript into their own agent, so it unfurls in Slack and a teammate can build on it \u2014 or search their PAST agent sessions to reuse earlier work (search_my_sessions). When the user reaches a decision, finishes a task, or lands on a useful conclusion, briefly offer to make it shareable (e.g. \u201Cwant a link to share this?\u201D) \u2014 a one-line offer, not a nag. Only mint a link when the user says yes. When the user asks how they solved something before, or seems to be redoing past work, use search_my_sessions.";
   const shown = bumpHintCount();
   if (shown <= 3) {

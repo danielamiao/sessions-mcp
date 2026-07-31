@@ -113,6 +113,65 @@ export function writeSyncState(state: Record<string, SyncEntry>): void {
   fs.writeFileSync(syncStatePath(), JSON.stringify(state));
 }
 
+// ---- background-watcher singleton lock -----------------------------------
+
+/** Lock file guarding the single live capture watcher (beside the token). */
+function watchLockPath(): string {
+  return configPath().replace(/config\.json$/, "watch.lock");
+}
+
+/** Try to become the singleton capture watcher. Returns true iff we now hold the lock. The lock
+ *  carries a heartbeat the holder refreshes each poll (see {@link touchWatchLock}); a lock whose
+ *  heartbeat is older than `staleMs` belonged to a crashed watcher and is stolen. This keeps exactly
+ *  one watcher alive even though every session start spawns one. */
+export function claimWatchLock(staleMs: number): boolean {
+  const file = watchLockPath();
+  try {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+  } catch {
+    return false;
+  }
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      // Atomic create-if-absent: only one racing watcher wins the fresh claim.
+      fs.writeFileSync(file, JSON.stringify({ at: Date.now(), pid: process.pid }), { flag: "wx" });
+      return true;
+    } catch {
+      let at = 0;
+      try {
+        at = JSON.parse(fs.readFileSync(file, "utf8")).at ?? 0;
+      } catch {
+        /* unreadable/corrupt lock — treat as stale below */
+      }
+      if (Date.now() - at < staleMs) return false; // a live watcher holds it
+      try {
+        fs.unlinkSync(file); // stale → drop it and retry the atomic claim
+      } catch {
+        return false;
+      }
+    }
+  }
+  return false;
+}
+
+/** Refresh the watcher lock's heartbeat — called each poll so a live watcher keeps its claim. */
+export function touchWatchLock(): void {
+  try {
+    fs.writeFileSync(watchLockPath(), JSON.stringify({ at: Date.now(), pid: process.pid }));
+  } catch {
+    /* best-effort */
+  }
+}
+
+/** Release the watcher lock on exit. */
+export function clearWatchLock(): void {
+  try {
+    fs.unlinkSync(watchLockPath());
+  } catch {
+    /* already gone */
+  }
+}
+
 /** Increment and return the SessionStart hint counter (beside the token). Used to show the
  *  first-run "you can share/search sessions" nudge a few times, then go quiet. */
 export function bumpHintCount(): number {
