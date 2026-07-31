@@ -11,8 +11,11 @@ BUNDLE="$HERE/dist/sessions-mcp.mjs"
 [ -f "$BUNDLE" ] || { echo "bundle missing at $BUNDLE"; exit 1; }
 command -v claude >/dev/null || { echo "Claude Code CLI ('claude') not found on PATH"; exit 1; }
 
-# 1. MCP server
-claude mcp add sessions -- node "$BUNDLE"
+# 1. MCP server — USER scope so it's available in EVERY project, not just this repo. (Default
+#    `claude mcp add` scope is `local` = current project only, which "disappears" when you cd away.)
+#    Remove any prior local-scoped registration first so re-running upgrades cleanly.
+claude mcp remove sessions >/dev/null 2>&1 || true
+claude mcp add --scope user sessions -- node "$BUNDLE"
 
 # 2. SessionStart hook (awareness + proactive offer + decaying first-run hint)
 SETTINGS="$HOME/.claude/settings.json"
