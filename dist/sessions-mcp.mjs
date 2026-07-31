@@ -21173,6 +21173,17 @@ function jsonlFilesUnder(root) {
   walk(root, 0);
   return files.map((file) => ({ file, mtime: fs.statSync(file).mtimeMs })).sort((a, b) => b.mtime - a.mtime).map((entry) => entry.file);
 }
+var CLAUDE_META_PREFIXES = [
+  "<local-command-caveat>",
+  "<command-name>",
+  "<command-message>",
+  "<command-args>",
+  "<local-command-stdout>",
+  "<local-command-stderr>"
+];
+function isClaudeMeta(text) {
+  return CLAUDE_META_PREFIXES.some((prefix) => text.startsWith(prefix));
+}
 function claudeText(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -21203,7 +21214,7 @@ function parseClaudeSession(file) {
     if (entry.type !== "user" && entry.type !== "assistant") continue;
     if (entry.isSidechain || entry.isMeta) continue;
     const text = claudeText(entry.message?.content).trim();
-    if (!text || text.startsWith("<local-command-caveat>")) continue;
+    if (!text || isClaudeMeta(text)) continue;
     if (!startedAt && entry.timestamp) startedAt = Date.parse(entry.timestamp) || 0;
     turns.push({ role: entry.message?.role === "user" ? "user" : "assistant", text });
   }

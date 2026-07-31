@@ -53,6 +53,23 @@ function jsonlFilesUnder(root: string): string[] {
     .map((entry) => entry.file);
 }
 
+/** Claude Code logs a slash command (and its output) as a pseudo user/assistant turn wrapped in
+ *  these tags — `/clear`, `/compact`, custom commands, their stdout/stderr. They're harness control,
+ *  not conversation: skipped so a `/clear` never becomes the session title or pollutes the
+ *  transcript/search, the same way the Codex parser skips its preamble markers. */
+const CLAUDE_META_PREFIXES = [
+  "<local-command-caveat>",
+  "<command-name>",
+  "<command-message>",
+  "<command-args>",
+  "<local-command-stdout>",
+  "<local-command-stderr>",
+];
+
+function isClaudeMeta(text: string): boolean {
+  return CLAUDE_META_PREFIXES.some((prefix) => text.startsWith(prefix));
+}
+
 /** Extract visible text from a Claude Code message content (string or block array). */
 function claudeText(content: unknown): string {
   if (typeof content === "string") return content;
@@ -89,7 +106,7 @@ export function parseClaudeSession(file: string): LocalSession | null {
     if (entry.type !== "user" && entry.type !== "assistant") continue;
     if (entry.isSidechain || entry.isMeta) continue; // subagent + meta lines stay out of the transcript
     const text = claudeText(entry.message?.content).trim();
-    if (!text || text.startsWith("<local-command-caveat>")) continue;
+    if (!text || isClaudeMeta(text)) continue;
     if (!startedAt && entry.timestamp) startedAt = Date.parse(entry.timestamp) || 0;
     turns.push({ role: entry.message?.role === "user" ? "user" : "assistant", text });
   }

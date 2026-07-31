@@ -15,6 +15,9 @@ test("claude parser extracts user/assistant text, skips sidechain+meta+garbage",
   assert.equal(session.turns.length, 3);
   assert.equal(session.turns[0].role, "user");
   assert.equal(session.title, "Fix the flaky auth test");
+  // A `/clear` slash command (logged as <command-name> wrapper XML) is meta, not the title.
+  assert.ok(!JSON.stringify(session.turns).includes("command-name"), "slash-command wrapper excluded");
+  assert.equal(session.turns[0].text, "Fix the flaky auth test", "first turn is real prose, not /clear");
   assert.ok(session.turns[1].text.includes("[tool: Bash]"), "tool_use surfaces as a marker");
   assert.ok(!JSON.stringify(session.turns).includes("subagent line"), "sidechain excluded");
   assert.ok(!JSON.stringify(session.turns).includes("meta line"), "meta excluded");

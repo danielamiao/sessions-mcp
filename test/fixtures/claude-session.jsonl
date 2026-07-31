@@ -1,4 +1,5 @@
 {"type":"custom-title","sessionId":"abc","customTitle":"t"}
+{"type":"user","isSidechain":false,"timestamp":"2026-07-30T09:59:00.000Z","message":{"role":"user","content":"<command-name>/clear</command-name> <command-message>clear</command-message> <command-args></command-args>"},"sessionId":"abc","uuid":"u0"}
 {"type":"user","isSidechain":false,"timestamp":"2026-07-30T10:00:00.000Z","message":{"role":"user","content":"Fix the flaky auth test"},"sessionId":"abc","uuid":"u1"}
 {"type":"assistant","isSidechain":false,"timestamp":"2026-07-30T10:00:05.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hmm"},{"type":"text","text":"Looking at the test now."},{"type":"tool_use","name":"Bash","input":{}}]},"sessionId":"abc","uuid":"u2"}
 {"type":"user","isSidechain":true,"timestamp":"2026-07-30T10:00:06.000Z","message":{"role":"user","content":"subagent line must not appear"},"sessionId":"abc","uuid":"u3"}
