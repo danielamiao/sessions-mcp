@@ -21555,6 +21555,7 @@ function assertSupportedRuntime() {
 // src/index.ts
 assertSupportedRuntime();
 var MIN_RESYNC_MS = 10 * 60 * 1e3;
+var SYNC_DEADLINE_MS = 90 * 1e3;
 if (process.argv.includes("--sync")) {
   const n = await syncLocalSessions();
   console.error(`sessions: captured ${n} new/changed session(s).`);
@@ -21611,8 +21612,19 @@ function presentSession(row) {
 async function syncLocalSessions() {
   const state = readSyncState();
   const now = Date.now();
+  const startedAt = Date.now();
+  try {
+    await token();
+  } catch (error2) {
+    console.error(`sessions-mcp: cannot obtain a token, skipping sync: ${error2}`);
+    return 0;
+  }
   let uploaded = 0;
   for (const session of localSessions()) {
+    if (SYNC_DEADLINE_MS <= Date.now() - startedAt) {
+      console.error("sessions-mcp: sync deadline reached; remaining sessions sync next time.");
+      break;
+    }
     const prev = state[session.session_id];
     const prevMtime = typeof prev === "number" ? prev : prev?.mtime ?? 0;
     const prevAt = typeof prev === "number" ? 0 : prev?.at ?? 0;

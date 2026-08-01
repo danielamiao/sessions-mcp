@@ -24,6 +24,12 @@ assertSupportedRuntime();
  *  Declared here (above the CLI dispatch) so it's initialized before the top-level `--sync` runs. */
 const MIN_RESYNC_MS = 10 * 60 * 1000;
 
+/** Total wall-clock budget for one `--sync` pass. Each upload has its own per-fetch timeout, but a
+ *  whole sync loops over up to ~100 sessions — against a slow backend that's 100 × the per-fetch
+ *  timeout. This caps the pass so a hook (or tool call) can't wedge for minutes; the unsynced tail is
+ *  picked up on the next run. */
+const SYNC_DEADLINE_MS = 90 * 1000;
+
 // Headless capture: `--sync` uploads + summarizes every changed local session, then exits. This is
 // what the SessionStart/SessionEnd hooks run, so EVERY session is captured automatically — capture
 // never waits for the user to call a tool. (Sharing stays a separate, explicit opt-in: capturing a
@@ -117,8 +123,23 @@ function presentSession(row: Record<string, unknown>): Record<string, unknown> {
 async function syncLocalSessions(): Promise<number> {
   const state = api.readSyncState();
   const now = Date.now();
+  const startedAt = Date.now();
+  // Fetch (or mint) the token ONCE up front. A failed mint isn't cached, so without this every
+  // session in the loop would re-mint and eat its own per-fetch timeout — turning a down backend into
+  // an N × timeout stall. If auth can't be obtained, nothing can upload, so stop here after the one.
+  try {
+    await api.token();
+  } catch (error) {
+    console.error(`sessions-mcp: cannot obtain a token, skipping sync: ${error}`);
+    return 0;
+  }
   let uploaded = 0;
   for (const session of localSessions()) {
+    // Total-time guard: stop the pass once the budget is spent; the tail syncs on the next run.
+    if (SYNC_DEADLINE_MS <= Date.now() - startedAt) {
+      console.error("sessions-mcp: sync deadline reached; remaining sessions sync next time.");
+      break;
+    }
     const prev = state[session.session_id];
     // prev may be an old-format bare mtime number; normalize.
     const prevMtime = typeof prev === "number" ? prev : (prev?.mtime ?? 0);
