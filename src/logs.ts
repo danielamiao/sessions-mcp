@@ -42,6 +42,23 @@ export function moSessionsDir(): string {
   return process.env.SESSIONS_MCP_MO_DIR ?? path.join(os.homedir(), ".mo", "sessions");
 }
 
+/** Largest session log we'll read into memory. A harness log is an untrusted producer (a crafted or
+ *  legitimately enormous session can be gigabytes); `readFileSync` would load it all at once and
+ *  `.split("\n")` would materialize every line, exhausting the process. Over this, the file is
+ *  skipped rather than read — losing that one session's capture, never the whole server. */
+const MAX_LOG_BYTES = 25 * 1024 * 1024;
+
+/** Read a session log's text, or `null` when it's missing, unreadable, or larger than
+ *  [`MAX_LOG_BYTES`] — the size is checked with `stat` BEFORE the file is read into memory. */
+function readCappedLog(file: string): string | null {
+  try {
+    if (MAX_LOG_BYTES < fs.statSync(file).size) return null;
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 /** Every *.jsonl under `root` (one directory level of project folders, then files), newest first. */
 function jsonlFilesUnder(root: string): string[] {
   if (!fs.existsSync(root)) return [];
@@ -96,12 +113,9 @@ function claudeText(content: unknown): string {
 export function parseClaudeSession(file: string): LocalSession | null {
   const turns: Turn[] = [];
   let startedAt = 0;
-  let lines: string[];
-  try {
-    lines = fs.readFileSync(file, "utf8").split("\n");
-  } catch {
-    return null;
-  }
+  const content = readCappedLog(file);
+  if (content === null) return null;
+  const lines = content.split("\n");
   for (const line of lines) {
     if (!line.trim()) continue;
     let entry: any;
@@ -147,12 +161,9 @@ function isCodexPreamble(text: string): boolean {
 export function parseCodexSession(file: string): LocalSession | null {
   const turns: Turn[] = [];
   let startedAt = 0;
-  let lines: string[];
-  try {
-    lines = fs.readFileSync(file, "utf8").split("\n");
-  } catch {
-    return null;
-  }
+  const content = readCappedLog(file);
+  if (content === null) return null;
+  const lines = content.split("\n");
   for (const line of lines) {
     if (!line.trim()) continue;
     let entry: any;
@@ -217,12 +228,9 @@ function readMoName(transcriptFile: string): string | undefined {
 export function parseMoSession(file: string): LocalSession | null {
   const turns: Turn[] = [];
   let startedAt = 0;
-  let lines: string[];
-  try {
-    lines = fs.readFileSync(file, "utf8").split("\n");
-  } catch {
-    return null;
-  }
+  const content = readCappedLog(file);
+  if (content === null) return null;
+  const lines = content.split("\n");
   for (const line of lines) {
     if (!line.trim()) continue;
     let entry: any;

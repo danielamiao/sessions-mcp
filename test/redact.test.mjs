@@ -42,6 +42,16 @@ test("parity with the gateway scrubber on its own test inputs", () => {
   assert.ok(bearer.includes("Bearer [redacted]"), bearer);
 });
 
+test("bearer redaction is case-insensitive, like the gateway", () => {
+  // The gateway matches `bearer` ignoring ASCII case; the client must too, or a lowercase marker
+  // leaves the machine and is caught only server-side — the exact drift this port exists to prevent.
+  for (const scheme of ["bearer", "BEARER", "BeArEr"]) {
+    const out = redactSecrets(`token is ${scheme} eyJhbGciOiJIUzI1deadbeefcafe here`);
+    assert.ok(!out.includes("eyJhbGciOiJIUzI1deadbeefcafe"), `${scheme}: ${out}`);
+    assert.ok(out.includes("[redacted]"), `${scheme}: ${out}`);
+  }
+});
+
 test("redacts every occurrence, not just the first", () => {
   const scrubbed = redactSecrets("a sk-ant-aaaaaaaaaa b sk-ant-bbbbbbbbbb c");
   assert.equal(scrubbed, "a [redacted] b [redacted] c");

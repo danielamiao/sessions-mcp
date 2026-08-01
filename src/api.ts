@@ -24,6 +24,24 @@ export function baseUrl(): string {
   return (process.env.SESSIONS_MCP_URL ?? DEFAULT_SESSIONS_URL).replace(/\/$/, "");
 }
 
+/** Per-request wall-clock cap. Without it a slow or held-open gateway wedges the tool call (or a hook)
+ *  indefinitely — the sync loop makes it worse, awaiting each upload in turn. Node's fetch has no
+ *  default timeout, so we impose one. */
+const REQUEST_TIMEOUT_MS = 30_000;
+
+/** `fetch` with a timeout: aborts after `REQUEST_TIMEOUT_MS` and throws a legible error rather than
+ *  hanging. Callers treat a throw as "this call failed" (capture is best-effort per session). */
+async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Response> {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) {
+      throw new Error(`request to ${url} timed out after ${REQUEST_TIMEOUT_MS}ms`);
+    }
+    throw error;
+  }
+}
+
 interface StoredConfig {
   token: string;
   principal_id?: string;
@@ -41,7 +59,7 @@ function readConfig(): StoredConfig | null {
 export async function token(): Promise<string> {
   const existing = readConfig();
   if (existing?.token) return existing.token;
-  const response = await fetch(`${baseUrl()}/sessions/anon`, { method: "POST" });
+  const response = await fetchWithTimeout(`${baseUrl()}/sessions/anon`, { method: "POST" });
   if (!response.ok) throw new Error(`mint failed: ${response.status} ${await response.text()}`);
   const minted = (await response.json()) as { token: string; principal_id: string };
   const file = configPath();
@@ -51,7 +69,7 @@ export async function token(): Promise<string> {
 }
 
 async function post(pathname: string, body: unknown): Promise<any> {
-  const response = await fetch(`${baseUrl()}${pathname}`, {
+  const response = await fetchWithTimeout(`${baseUrl()}${pathname}`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-gw-key": await token() },
     body: JSON.stringify(body),
@@ -86,7 +104,7 @@ export async function pull(linkOrToken: string, full = false): Promise<any> {
   const match = linkOrToken.match(/[0-9a-f]{64}/);
   if (!match) throw new Error("that doesn't look like a session share link or token");
   const url = `${baseUrl()}/sessions/pull/${match[0]}${full ? "?full=1" : ""}`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   const text = await response.text();
   if (!response.ok) throw new Error(`pull: ${response.status} ${text.slice(0, 300)}`);
   return JSON.parse(text);
@@ -94,9 +112,17 @@ export async function pull(linkOrToken: string, full = false): Promise<any> {
 
 // ---- lazy sync state ------------------------------------------------------
 
+/** A sibling file beside the token's config. Derived from the config DIRECTORY + a fixed name, not a
+ *  regex on the basename: with a custom `SESSIONS_MCP_CONFIG` that doesn't end in `config.json`, the
+ *  old `replace(/config\.json$/, …)` didn't match and returned the config path itself — so writing
+ *  sync state clobbered the stored token. */
+function sibling(name: string): string {
+  return path.join(path.dirname(configPath()), name);
+}
+
 /** Per-session last-uploaded mtimes, kept beside the token. */
 function syncStatePath(): string {
-  return configPath().replace(/config\.json$/, "sync.json");
+  return sibling("sync.json");
 }
 
 type SyncEntry = number | { mtime: number; at: number };
@@ -116,7 +142,7 @@ export function writeSyncState(state: Record<string, SyncEntry>): void {
 /** Increment and return the SessionStart hint counter (beside the token). Used to show the
  *  first-run "you can share/search sessions" nudge a few times, then go quiet. */
 export function bumpHintCount(): number {
-  const file = configPath().replace(/config\.json$/, "hint-count");
+  const file = sibling("hint-count");
   let n = 0;
   try {
     n = parseInt(fs.readFileSync(file, "utf8"), 10) || 0;

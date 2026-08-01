@@ -61,13 +61,28 @@ function redactAfter(text: string, needle: string, boundaryOnly: boolean): strin
   return out + rest;
 }
 
-/** Redact the token after each `Bearer ` marker, keeping the scheme so the shape stays readable. */
+/** Index of the first case-insensitive `marker` in `text`, or -1. The marker is ASCII, so this
+ *  lowercases only single haystack chars (never the whole string, whose length can shift under
+ *  `toLowerCase`) — indices stay exact. */
+function indexOfCaseInsensitive(text: string, marker: string): number {
+  const lower = marker.toLowerCase();
+  outer: for (let i = 0; i + marker.length <= text.length; i += 1) {
+    for (let j = 0; j < marker.length; j += 1) {
+      if (text[i + j].toLowerCase() !== lower[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
+
+/** Redact the token after each `bearer ` marker (case-insensitive — `Bearer`/`bearer`/`BEARER` all
+ *  match, matching the gateway), keeping the scheme so the shape stays readable. */
 function redactBearer(text: string): string {
   const marker = "Bearer ";
   let out = "";
   let rest = text;
   for (;;) {
-    const found = rest.indexOf(marker);
+    const found = indexOfCaseInsensitive(rest, marker);
     if (found === -1) break;
     const head = rest.slice(0, found + marker.length);
     const tail = rest.slice(found + marker.length);
