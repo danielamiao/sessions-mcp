@@ -42,6 +42,25 @@ async function fetchWithTimeout(url: string, init: RequestInit = {}): Promise<Re
   }
 }
 
+/** An error carrying the HTTP status of a failed API call, so a caller can tell a PERMANENT rejection
+ *  (4xx — the request itself is unacceptable, e.g. a session over the size/turn limit) from a
+ *  TRANSIENT failure (5xx / network / timeout, `status === 0`). The former shouldn't be retried; the
+ *  latter should. */
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+/** Whether an error is a permanent 4xx rejection (don't retry) vs anything else (transient, retry). */
+export function isPermanentRejection(error: unknown): boolean {
+  return error instanceof ApiError && 400 <= error.status && error.status < 500;
+}
+
 interface StoredConfig {
   token: string;
   principal_id?: string;
@@ -75,7 +94,7 @@ async function post(pathname: string, body: unknown): Promise<any> {
     body: JSON.stringify(body),
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`${pathname}: ${response.status} ${text.slice(0, 300)}`);
+  if (!response.ok) throw new ApiError(`${pathname}: ${response.status} ${text.slice(0, 300)}`, response.status);
   return JSON.parse(text);
 }
 

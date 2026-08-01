@@ -6,7 +6,19 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { writeSyncState, readSyncState, bumpHintCount } from "../dist/api.js";
+import { writeSyncState, readSyncState, bumpHintCount, ApiError, isPermanentRejection } from "../dist/api.js";
+
+test("isPermanentRejection: 4xx is permanent (don't retry); 5xx / network / timeout are transient", () => {
+  // A session the server rejects (413 too big, 400 too many turns) shouldn't be re-sent every sync.
+  assert.equal(isPermanentRejection(new ApiError("too big", 413)), true);
+  assert.equal(isPermanentRejection(new ApiError("bad turns", 400)), true);
+  assert.equal(isPermanentRejection(new ApiError("unauthorized", 401)), true);
+  // Transient — retry next run.
+  assert.equal(isPermanentRejection(new ApiError("server error", 500)), false);
+  assert.equal(isPermanentRejection(new ApiError("gateway down", 503)), false);
+  assert.equal(isPermanentRejection(new Error("network / timeout")), false);
+  assert.equal(isPermanentRejection(undefined), false);
+});
 
 test("sync state + hint counter never overwrite a non-'config.json' token file", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sessions-mcp-api-"));

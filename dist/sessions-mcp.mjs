@@ -21238,10 +21238,18 @@ function codexSessionsDir() {
 function moSessionsDir() {
   return process.env.SESSIONS_MCP_MO_DIR ?? path.join(os.homedir(), ".mo", "sessions");
 }
-var MAX_LOG_BYTES = 25 * 1024 * 1024;
+var MAX_LOG_BYTES = 500 * 1024 * 1024;
 function readCappedLog(file) {
   try {
-    if (MAX_LOG_BYTES < fs.statSync(file).size) return null;
+    const size = fs.statSync(file).size;
+    if (MAX_LOG_BYTES < size) {
+      console.error(
+        `sessions-mcp: skipping ${file} \u2014 ${Math.round(size / 1048576)} MB is over the ${Math.round(
+          MAX_LOG_BYTES / 1048576
+        )} MB read cap`
+      );
+      return null;
+    }
     return fs.readFileSync(file, "utf8");
   } catch {
     return null;
@@ -21286,8 +21294,7 @@ function parseClaudeSession(file) {
   let startedAt = 0;
   const content = readCappedLog(file);
   if (content === null) return null;
-  const lines = content.split("\n");
-  for (const line of lines) {
+  for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     let entry;
     try {
@@ -21327,8 +21334,7 @@ function parseCodexSession(file) {
   let startedAt = 0;
   const content = readCappedLog(file);
   if (content === null) return null;
-  const lines = content.split("\n");
-  for (const line of lines) {
+  for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     let entry;
     try {
@@ -21376,8 +21382,7 @@ function parseMoSession(file) {
   let startedAt = 0;
   const content = readCappedLog(file);
   if (content === null) return null;
-  const lines = content.split("\n");
-  for (const line of lines) {
+  for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     let entry;
     try {
@@ -21451,6 +21456,16 @@ async function fetchWithTimeout(url, init = {}) {
     throw error2;
   }
 }
+var ApiError = class extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+    this.name = "ApiError";
+  }
+};
+function isPermanentRejection(error2) {
+  return error2 instanceof ApiError && 400 <= error2.status && error2.status < 500;
+}
 function readConfig() {
   try {
     return JSON.parse(fs2.readFileSync(configPath(), "utf8"));
@@ -21476,7 +21491,7 @@ async function post(pathname, body) {
     body: JSON.stringify(body)
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`${pathname}: ${response.status} ${text.slice(0, 300)}`);
+  if (!response.ok) throw new ApiError(`${pathname}: ${response.status} ${text.slice(0, 300)}`, response.status);
   return JSON.parse(text);
 }
 async function upload(session) {
@@ -21636,7 +21651,12 @@ async function syncLocalSessions() {
       state[session.session_id] = { mtime: session.mtime_ms, at: now };
       uploaded += 1;
     } catch (error2) {
-      console.error(`sessions-mcp: upload ${session.session_id} failed: ${error2}`);
+      if (isPermanentRejection(error2)) {
+        state[session.session_id] = { mtime: session.mtime_ms, at: now };
+        console.error(`sessions-mcp: ${session.session_id} rejected, not retrying: ${error2}`);
+      } else {
+        console.error(`sessions-mcp: upload ${session.session_id} failed (will retry): ${error2}`);
+      }
     }
   }
   writeSyncState(state);

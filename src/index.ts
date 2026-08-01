@@ -152,7 +152,15 @@ async function syncLocalSessions(): Promise<number> {
       state[session.session_id] = { mtime: session.mtime_ms, at: now };
       uploaded += 1;
     } catch (error) {
-      console.error(`sessions-mcp: upload ${session.session_id} failed: ${error}`);
+      if (api.isPermanentRejection(error)) {
+        // The session itself is unacceptable (e.g. over the size/turn limit) — retrying can't help.
+        // Record it (as if uploaded) so it isn't re-parsed and re-sent every sync, and say why once.
+        state[session.session_id] = { mtime: session.mtime_ms, at: now };
+        console.error(`sessions-mcp: ${session.session_id} rejected, not retrying: ${error}`);
+      } else {
+        // Transient (5xx / network / timeout) — leave state untouched so the next run retries.
+        console.error(`sessions-mcp: upload ${session.session_id} failed (will retry): ${error}`);
+      }
     }
   }
   api.writeSyncState(state);

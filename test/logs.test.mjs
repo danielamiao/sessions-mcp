@@ -2,6 +2,8 @@
 // pin exactly what we extract and, as importantly, what we exclude (subagent + meta lines).
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseClaudeSession, parseCodexSession, parseMoSession } from "../dist/logs.js";
@@ -52,4 +54,36 @@ test("mo parser reads user/assistant turns, adds tool markers, skips meta + tool
 test("empty or unreadable file yields null, not a throw", () => {
   assert.equal(parseClaudeSession("/nonexistent/file.jsonl"), null);
   assert.equal(parseMoSession("/nonexistent/file.jsonl"), null);
+});
+
+// A real 52 MB log parses to a sub-MB upload (it's ~98% tool output, stripped to markers), so the
+// read is never the bottleneck; this pins that a large, many-line log is read whole and correctly —
+// every turn captured, multibyte intact, and a final line with no trailing newline included.
+test("reads a large many-line log correctly (all turns, multibyte, no trailing newline)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "sessions-mcp-big-"));
+  const file = path.join(dir, "big.jsonl");
+  try {
+    const N = 4000;
+    const lines = [];
+    for (let i = 0; i < N; i += 1) {
+      const role = i % 2 === 0 ? "user" : "assistant";
+      lines.push(
+        JSON.stringify({
+          type: role,
+          timestamp: "2026-07-30T10:00:00.000Z",
+          message: { role, content: `turn ${i} café ${"x".repeat(50)}` },
+        }),
+      );
+    }
+    fs.writeFileSync(file, lines.join("\n")); // no trailing newline
+
+    const session = parseClaudeSession(file);
+    assert.ok(session, "a large session is captured, not skipped");
+    assert.equal(session.turns.length, N, "every line became a turn");
+    assert.ok(session.turns[0].text.includes("café"), "multibyte survives (start)");
+    assert.ok(session.turns[N - 1].text.includes("turn 3999"), "the final line (no trailing \\n) is captured");
+    assert.ok(session.turns[N - 1].text.includes("café"), "multibyte survives (last line)");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
