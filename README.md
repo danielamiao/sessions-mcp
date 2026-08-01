@@ -23,7 +23,7 @@ the installer refuses anything older, since on node 16 it would install cleanly 
 upload from inside a hook where the error is never seen.
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/danielamiao/sessions-mcp/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/danielamiao/sessions-mcp/main/install.sh | sh
 ```
 
 Or from a checkout, which installs the bundle you just built instead of downloading one:

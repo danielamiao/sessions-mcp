@@ -6,7 +6,7 @@
 #   3. slash commands (/share-session, /find-session) — a discoverable handle in the `/` menu
 #
 # Runs two ways, and lands in the same place either way:
-#   curl -fsSL https://raw.githubusercontent.com/danielamiao/sessions-mcp/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/danielamiao/sessions-mcp/main/install.sh | sh
 #   ./install.sh          # from a checkout — uses the bundle you just built
 #
 # The bundle is always INSTALLED to a stable path ($HOME/.sessions-mcp) rather than referenced where
@@ -69,7 +69,7 @@ if [ 0 -eq $((HAS_CLAUDE + HAS_CODEX + HAS_MO)) ]; then
 fi
 
 # Checkout mode only when $0 really names this script on disk. Piped, $0 is "bash", so this is false
-# and we download — deliberately, so `curl | bash` run from inside a stale checkout installs the
+# and we download — deliberately, so a piped install run from inside a stale checkout installs the
 # current bundle rather than whatever happens to be sitting in the cwd.
 LOCAL_BUNDLE=""
 case "${0:-}" in
