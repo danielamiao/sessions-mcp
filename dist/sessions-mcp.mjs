@@ -21441,7 +21441,7 @@ import * as os2 from "node:os";
 function configPath() {
   return process.env.SESSIONS_MCP_CONFIG ?? path2.join(os2.homedir(), ".config", "sessions-mcp", "config.json");
 }
-var DEFAULT_SESSIONS_URL = "https://ozfxbgvg5mep7hw2psvuw7wnqq0imidg.lambda-url.us-west-2.on.aws";
+var DEFAULT_SESSIONS_URL = "https://vend.gomomento.ai";
 function baseUrl() {
   return (process.env.SESSIONS_MCP_URL ?? DEFAULT_SESSIONS_URL).replace(/\/$/, "");
 }

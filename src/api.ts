@@ -16,8 +16,10 @@ export function configPath(): string {
 }
 
 /** Default gateway the sessions API lives behind, baked so a user never has to find or paste a URL.
+ *  The stable public prod host — the request `Host` is what the gateway derives share links from, so
+ *  calling it here is also what makes shared links read `vend.gomomento.ai/s/<token>`.
  *  Overridable with SESSIONS_MCP_URL (a different cell, local testing). */
-const DEFAULT_SESSIONS_URL = "https://ozfxbgvg5mep7hw2psvuw7wnqq0imidg.lambda-url.us-west-2.on.aws";
+const DEFAULT_SESSIONS_URL = "https://vend.gomomento.ai";
 
 /** The API base URL — the baked default unless SESSIONS_MCP_URL overrides it. */
 export function baseUrl(): string {
