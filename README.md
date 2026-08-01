@@ -13,8 +13,8 @@ the agent itself. A small MCP server: no account, no signup, one-command install
 
 You keep using Claude Code / Codex exactly as-is.
 
-**Needs:** `node` ≥ 18, `bash`, `curl`, and at least one of Claude Code / Codex / mo. macOS and Linux.
-(macOS's stock bash 3.2 is fine. On Alpine, `apk add bash curl` first — neither ships by default.)
+**Needs:** `node` ≥ 18, and at least one of Claude Code / Codex / mo. macOS and Linux.
+(The installer is POSIX `sh` and takes curl *or* wget, so it needs nothing else — bare Alpine works.)
 
 Don't assume your agent already brought node: Claude Code's native install and mo are standalone
 binaries, so only an npm-installed Codex guarantees it. The server needs node at *runtime* too — it

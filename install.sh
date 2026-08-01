@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/sh
 # One command installs the whole sessions experience into Claude Code:
 #   1. the MCP server (search / share / pull / unshare)
 #   2. a SessionStart hook — makes Claude AWARE of the capability and offer to share at natural
@@ -14,7 +14,11 @@
 # files. Pointing those at a checkout means moving or deleting the checkout silently breaks capture
 # long after the fact — and gives the piped install nothing to point at.
 # Idempotent: safe to re-run, and re-running repoints an existing install at the current path.
-set -euo pipefail
+#
+# POSIX sh, not bash — `sh` is on every Unix, bash isn't (Alpine ships neither bash nor curl). The
+# script has no pipelines whose status it depends on, so `pipefail` (a bashism dash rejects) bought
+# nothing and is gone. Keep it that way: no [[ ]], no arrays, no ${x,,}.
+set -eu
 
 RAW_URL="${SESSIONS_MCP_RAW_URL:-https://raw.githubusercontent.com/danielamiao/sessions-mcp/main}"
 PREFIX="${SESSIONS_MCP_HOME:-$HOME/.sessions-mcp}"
@@ -82,11 +86,19 @@ if [ -n "$LOCAL_BUNDLE" ]; then
   cp "$LOCAL_BUNDLE" "$BUNDLE"
   echo "✓ installed the local bundle to $BUNDLE"
 else
-  command -v curl >/dev/null || { echo "curl not found on PATH"; exit 1; }
   # Download beside the target (same filesystem, so the install is an atomic rename) and keep the
   # .mjs suffix — `node --check` picks module vs script from the extension, and the bundle is ESM.
   DOWNLOAD="$PREFIX/.sessions-mcp.download.mjs"
-  curl -fsSL "$RAW_URL/dist/sessions-mcp.mjs" -o "$DOWNLOAD"
+  # curl or wget, whichever is here. Alpine/BusyBox ships wget and no curl; most others are the
+  # reverse — accepting both means the download tool stops being something to install first.
+  # Both are told to fail loudly on an HTTP error rather than write the error page to the file.
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "$RAW_URL/dist/sessions-mcp.mjs" -o "$DOWNLOAD"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -qO "$DOWNLOAD" "$RAW_URL/dist/sessions-mcp.mjs"
+  else
+    echo "need curl or wget to download the bundle (or run install.sh from a checkout)"; exit 1
+  fi
   # Whatever arrives gets executed by the hooks below, so refuse anything that isn't JavaScript —
   # a captive-portal login page returning 200 is the case this catches. (`curl -f` already fails an
   # HTTP error, and a short read trips its own partial-transfer check.) Parsing is not authenticity:
