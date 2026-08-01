@@ -21192,12 +21192,22 @@ function redactAfter(text, needle, boundaryOnly) {
   }
   return out + rest;
 }
+function indexOfCaseInsensitive(text, marker) {
+  const lower = marker.toLowerCase();
+  outer: for (let i = 0; i + marker.length <= text.length; i += 1) {
+    for (let j = 0; j < marker.length; j += 1) {
+      if (text[i + j].toLowerCase() !== lower[j]) continue outer;
+    }
+    return i;
+  }
+  return -1;
+}
 function redactBearer(text) {
   const marker = "Bearer ";
   let out = "";
   let rest = text;
   for (; ; ) {
-    const found = rest.indexOf(marker);
+    const found = indexOfCaseInsensitive(rest, marker);
     if (found === -1) break;
     const head = rest.slice(0, found + marker.length);
     const tail = rest.slice(found + marker.length);
@@ -21227,6 +21237,23 @@ function codexSessionsDir() {
 }
 function moSessionsDir() {
   return process.env.SESSIONS_MCP_MO_DIR ?? path.join(os.homedir(), ".mo", "sessions");
+}
+var MAX_LOG_BYTES = 500 * 1024 * 1024;
+function readCappedLog(file) {
+  try {
+    const size = fs.statSync(file).size;
+    if (MAX_LOG_BYTES < size) {
+      console.error(
+        `sessions-mcp: skipping ${file} \u2014 ${Math.round(size / 1048576)} MB is over the ${Math.round(
+          MAX_LOG_BYTES / 1048576
+        )} MB read cap`
+      );
+      return null;
+    }
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
 }
 function jsonlFilesUnder(root) {
   if (!fs.existsSync(root)) return [];
@@ -21265,13 +21292,9 @@ function claudeText(content) {
 function parseClaudeSession(file) {
   const turns = [];
   let startedAt = 0;
-  let lines;
-  try {
-    lines = fs.readFileSync(file, "utf8").split("\n");
-  } catch {
-    return null;
-  }
-  for (const line of lines) {
+  const content = readCappedLog(file);
+  if (content === null) return null;
+  for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     let entry;
     try {
@@ -21309,13 +21332,9 @@ function isCodexPreamble(text) {
 function parseCodexSession(file) {
   const turns = [];
   let startedAt = 0;
-  let lines;
-  try {
-    lines = fs.readFileSync(file, "utf8").split("\n");
-  } catch {
-    return null;
-  }
-  for (const line of lines) {
+  const content = readCappedLog(file);
+  if (content === null) return null;
+  for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     let entry;
     try {
@@ -21361,13 +21380,9 @@ function readMoName(transcriptFile) {
 function parseMoSession(file) {
   const turns = [];
   let startedAt = 0;
-  let lines;
-  try {
-    lines = fs.readFileSync(file, "utf8").split("\n");
-  } catch {
-    return null;
-  }
-  for (const line of lines) {
+  const content = readCappedLog(file);
+  if (content === null) return null;
+  for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     let entry;
     try {
@@ -21430,6 +21445,27 @@ var DEFAULT_SESSIONS_URL = "https://ozfxbgvg5mep7hw2psvuw7wnqq0imidg.lambda-url.
 function baseUrl() {
   return (process.env.SESSIONS_MCP_URL ?? DEFAULT_SESSIONS_URL).replace(/\/$/, "");
 }
+var REQUEST_TIMEOUT_MS = 3e4;
+async function fetchWithTimeout(url, init = {}) {
+  try {
+    return await fetch(url, { ...init, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  } catch (error2) {
+    if (error2 instanceof Error && (error2.name === "TimeoutError" || error2.name === "AbortError")) {
+      throw new Error(`request to ${url} timed out after ${REQUEST_TIMEOUT_MS}ms`);
+    }
+    throw error2;
+  }
+}
+var ApiError = class extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+    this.name = "ApiError";
+  }
+};
+function isPermanentRejection(error2) {
+  return error2 instanceof ApiError && 400 <= error2.status && error2.status < 500;
+}
 function readConfig() {
   try {
     return JSON.parse(fs2.readFileSync(configPath(), "utf8"));
@@ -21440,7 +21476,7 @@ function readConfig() {
 async function token() {
   const existing = readConfig();
   if (existing?.token) return existing.token;
-  const response = await fetch(`${baseUrl()}/sessions/anon`, { method: "POST" });
+  const response = await fetchWithTimeout(`${baseUrl()}/sessions/anon`, { method: "POST" });
   if (!response.ok) throw new Error(`mint failed: ${response.status} ${await response.text()}`);
   const minted = await response.json();
   const file = configPath();
@@ -21449,13 +21485,13 @@ async function token() {
   return minted.token;
 }
 async function post(pathname, body) {
-  const response = await fetch(`${baseUrl()}${pathname}`, {
+  const response = await fetchWithTimeout(`${baseUrl()}${pathname}`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-gw-key": await token() },
     body: JSON.stringify(body)
   });
   const text = await response.text();
-  if (!response.ok) throw new Error(`${pathname}: ${response.status} ${text.slice(0, 300)}`);
+  if (!response.ok) throw new ApiError(`${pathname}: ${response.status} ${text.slice(0, 300)}`, response.status);
   return JSON.parse(text);
 }
 async function upload(session) {
@@ -21476,13 +21512,16 @@ async function pull(linkOrToken, full = false) {
   const match = linkOrToken.match(/[0-9a-f]{64}/);
   if (!match) throw new Error("that doesn't look like a session share link or token");
   const url = `${baseUrl()}/sessions/pull/${match[0]}${full ? "?full=1" : ""}`;
-  const response = await fetch(url);
+  const response = await fetchWithTimeout(url);
   const text = await response.text();
   if (!response.ok) throw new Error(`pull: ${response.status} ${text.slice(0, 300)}`);
   return JSON.parse(text);
 }
+function sibling(name) {
+  return path2.join(path2.dirname(configPath()), name);
+}
 function syncStatePath() {
-  return configPath().replace(/config\.json$/, "sync.json");
+  return sibling("sync.json");
 }
 function readSyncState() {
   try {
@@ -21496,7 +21535,7 @@ function writeSyncState(state) {
   fs2.writeFileSync(syncStatePath(), JSON.stringify(state));
 }
 function bumpHintCount() {
-  const file = configPath().replace(/config\.json$/, "hint-count");
+  const file = sibling("hint-count");
   let n = 0;
   try {
     n = parseInt(fs2.readFileSync(file, "utf8"), 10) || 0;
@@ -21531,6 +21570,7 @@ function assertSupportedRuntime() {
 // src/index.ts
 assertSupportedRuntime();
 var MIN_RESYNC_MS = 10 * 60 * 1e3;
+var SYNC_DEADLINE_MS = 90 * 1e3;
 if (process.argv.includes("--sync")) {
   const n = await syncLocalSessions();
   console.error(`sessions: captured ${n} new/changed session(s).`);
@@ -21587,8 +21627,19 @@ function presentSession(row) {
 async function syncLocalSessions() {
   const state = readSyncState();
   const now = Date.now();
+  const startedAt = Date.now();
+  try {
+    await token();
+  } catch (error2) {
+    console.error(`sessions-mcp: cannot obtain a token, skipping sync: ${error2}`);
+    return 0;
+  }
   let uploaded = 0;
   for (const session of localSessions()) {
+    if (SYNC_DEADLINE_MS <= Date.now() - startedAt) {
+      console.error("sessions-mcp: sync deadline reached; remaining sessions sync next time.");
+      break;
+    }
     const prev = state[session.session_id];
     const prevMtime = typeof prev === "number" ? prev : prev?.mtime ?? 0;
     const prevAt = typeof prev === "number" ? 0 : prev?.at ?? 0;
@@ -21600,7 +21651,12 @@ async function syncLocalSessions() {
       state[session.session_id] = { mtime: session.mtime_ms, at: now };
       uploaded += 1;
     } catch (error2) {
-      console.error(`sessions-mcp: upload ${session.session_id} failed: ${error2}`);
+      if (isPermanentRejection(error2)) {
+        state[session.session_id] = { mtime: session.mtime_ms, at: now };
+        console.error(`sessions-mcp: ${session.session_id} rejected, not retrying: ${error2}`);
+      } else {
+        console.error(`sessions-mcp: upload ${session.session_id} failed (will retry): ${error2}`);
+      }
     }
   }
   writeSyncState(state);

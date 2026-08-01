@@ -42,6 +42,32 @@ export function moSessionsDir(): string {
   return process.env.SESSIONS_MCP_MO_DIR ?? path.join(os.homedir(), ".mo", "sessions");
 }
 
+/** Largest session log we'll read into memory. A real harness log — even a 50 MB one that's mostly
+ *  tool output — parses down to a sub-MB upload, so `readFileSync` (~2× the file, transient) is a
+ *  non-issue at any realistic size. This cap only fends off a truly pathological file (hundreds of MB
+ *  to GB); over it, skip + log rather than read, since the gateway would reject such a session anyway.
+ *  Set far above a real max (~50 MB) so nothing genuine is ever skipped. */
+const MAX_LOG_BYTES = 500 * 1024 * 1024;
+
+/** Read a session log's text, or `null` when it's missing/unreadable, or over [`MAX_LOG_BYTES`] — the
+ *  size is checked with `stat` BEFORE the read. An over-cap file is logged (not silently dropped). */
+function readCappedLog(file: string): string | null {
+  try {
+    const size = fs.statSync(file).size;
+    if (MAX_LOG_BYTES < size) {
+      console.error(
+        `sessions-mcp: skipping ${file} — ${Math.round(size / 1048576)} MB is over the ${Math.round(
+          MAX_LOG_BYTES / 1048576,
+        )} MB read cap`,
+      );
+      return null;
+    }
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
+}
+
 /** Every *.jsonl under `root` (one directory level of project folders, then files), newest first. */
 function jsonlFilesUnder(root: string): string[] {
   if (!fs.existsSync(root)) return [];
@@ -96,13 +122,9 @@ function claudeText(content: unknown): string {
 export function parseClaudeSession(file: string): LocalSession | null {
   const turns: Turn[] = [];
   let startedAt = 0;
-  let lines: string[];
-  try {
-    lines = fs.readFileSync(file, "utf8").split("\n");
-  } catch {
-    return null;
-  }
-  for (const line of lines) {
+  const content = readCappedLog(file);
+  if (content === null) return null;
+  for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     let entry: any;
     try {
@@ -147,13 +169,9 @@ function isCodexPreamble(text: string): boolean {
 export function parseCodexSession(file: string): LocalSession | null {
   const turns: Turn[] = [];
   let startedAt = 0;
-  let lines: string[];
-  try {
-    lines = fs.readFileSync(file, "utf8").split("\n");
-  } catch {
-    return null;
-  }
-  for (const line of lines) {
+  const content = readCappedLog(file);
+  if (content === null) return null;
+  for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     let entry: any;
     try {
@@ -217,13 +235,9 @@ function readMoName(transcriptFile: string): string | undefined {
 export function parseMoSession(file: string): LocalSession | null {
   const turns: Turn[] = [];
   let startedAt = 0;
-  let lines: string[];
-  try {
-    lines = fs.readFileSync(file, "utf8").split("\n");
-  } catch {
-    return null;
-  }
-  for (const line of lines) {
+  const content = readCappedLog(file);
+  if (content === null) return null;
+  for (const line of content.split("\n")) {
     if (!line.trim()) continue;
     let entry: any;
     try {
