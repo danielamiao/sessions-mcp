@@ -21511,7 +21511,25 @@ function bumpHintCount() {
   return n;
 }
 
+// src/runtime.ts
+var MIN_NODE_MAJOR = 18;
+function unsupportedRuntimeMessage(fetchImpl, nodeVersion) {
+  if (typeof fetchImpl === "function") return null;
+  return [
+    `sessions-mcp: needs node ${MIN_NODE_MAJOR}+ (running ${nodeVersion}) \u2014 global fetch is missing,`,
+    "  so nothing can be uploaded, searched, or shared. Refusing to run rather than silently",
+    "  capturing nothing. Install node 18+ (nvm: `nvm install --lts`) and start a new session."
+  ].join("\n");
+}
+function assertSupportedRuntime() {
+  const message = unsupportedRuntimeMessage(globalThis.fetch, process.version);
+  if (message === null) return;
+  console.error(message);
+  process.exit(1);
+}
+
 // src/index.ts
+assertSupportedRuntime();
 var MIN_RESYNC_MS = 10 * 60 * 1e3;
 if (process.argv.includes("--sync")) {
   const n = await syncLocalSessions();
