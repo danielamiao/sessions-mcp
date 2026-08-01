@@ -21154,6 +21154,71 @@ import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+
+// src/redact.ts
+var SECRET_RUN = /[A-Za-z0-9_-]/;
+var BEARER_RUN = /[A-Za-z0-9._-]/;
+var MIN_RUN = 8;
+var NEEDLES = [
+  ["sk-ant-", false],
+  ["sk-", true],
+  ["gwk_live_", false],
+  ["AKIA", true]
+];
+function runLength(text, pattern) {
+  let n = 0;
+  while (n < text.length && pattern.test(text[n])) n += 1;
+  return n;
+}
+function redactAfter(text, needle, boundaryOnly) {
+  let out = "";
+  let rest = text;
+  for (; ; ) {
+    const found = rest.indexOf(needle);
+    if (found === -1) break;
+    const before = rest.slice(0, found);
+    const tail = rest.slice(found + needle.length);
+    const previous = before.at(-1);
+    const atBoundary = previous === void 0 || !/[A-Za-z0-9]/.test(previous);
+    const run = runLength(tail, SECRET_RUN);
+    out += before;
+    if ((!boundaryOnly || atBoundary) && run >= MIN_RUN) {
+      out += "[redacted]";
+      rest = tail.slice(run);
+    } else {
+      out += needle;
+      rest = tail;
+    }
+  }
+  return out + rest;
+}
+function redactBearer(text) {
+  const marker = "Bearer ";
+  let out = "";
+  let rest = text;
+  for (; ; ) {
+    const found = rest.indexOf(marker);
+    if (found === -1) break;
+    const head = rest.slice(0, found + marker.length);
+    const tail = rest.slice(found + marker.length);
+    const run = runLength(tail, BEARER_RUN);
+    out += head;
+    if (run >= MIN_RUN) {
+      out += "[redacted]";
+      rest = tail.slice(run);
+    } else {
+      rest = tail;
+    }
+  }
+  return out + rest;
+}
+function redactSecrets(text) {
+  let out = text;
+  for (const [needle, boundaryOnly] of NEEDLES) out = redactAfter(out, needle, boundaryOnly);
+  return redactBearer(out);
+}
+
+// src/logs.ts
 function claudeProjectsDir() {
   return process.env.SESSIONS_MCP_CLAUDE_DIR ?? path.join(os.homedir(), ".claude", "projects");
 }
@@ -21330,19 +21395,26 @@ function parseMoSession(file) {
     mtime_ms: fs.statSync(file).mtimeMs
   };
 }
+function scrubbed(session) {
+  return {
+    ...session,
+    title: redactSecrets(session.title),
+    turns: session.turns.map((turn) => ({ ...turn, text: redactSecrets(turn.text) }))
+  };
+}
 function localSessions(limit = 50) {
   const sessions = [];
   for (const file of jsonlFilesUnder(claudeProjectsDir()).slice(0, limit)) {
     const parsed = parseClaudeSession(file);
-    if (parsed) sessions.push(parsed);
+    if (parsed) sessions.push(scrubbed(parsed));
   }
   for (const file of jsonlFilesUnder(codexSessionsDir()).slice(0, limit)) {
     const parsed = parseCodexSession(file);
-    if (parsed) sessions.push(parsed);
+    if (parsed) sessions.push(scrubbed(parsed));
   }
   for (const file of jsonlFilesUnder(moSessionsDir()).slice(0, limit)) {
     const parsed = parseMoSession(file);
-    if (parsed) sessions.push(parsed);
+    if (parsed) sessions.push(scrubbed(parsed));
   }
   return sessions.sort((a, b) => b.started_at_ms - a.started_at_ms);
 }
@@ -21439,7 +21511,25 @@ function bumpHintCount() {
   return n;
 }
 
+// src/runtime.ts
+var MIN_NODE_MAJOR = 18;
+function unsupportedRuntimeMessage(fetchImpl, nodeVersion) {
+  if (typeof fetchImpl === "function") return null;
+  return [
+    `sessions-mcp: needs node ${MIN_NODE_MAJOR}+ (running ${nodeVersion}) \u2014 global fetch is missing,`,
+    "  so nothing can be uploaded, searched, or shared. Refusing to run rather than silently",
+    "  capturing nothing. Install node 18+ (nvm: `nvm install --lts`) and start a new session."
+  ].join("\n");
+}
+function assertSupportedRuntime() {
+  const message = unsupportedRuntimeMessage(globalThis.fetch, process.version);
+  if (message === null) return;
+  console.error(message);
+  process.exit(1);
+}
+
 // src/index.ts
+assertSupportedRuntime();
 var MIN_RESYNC_MS = 10 * 60 * 1e3;
 if (process.argv.includes("--sync")) {
   const n = await syncLocalSessions();

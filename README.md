@@ -35,8 +35,10 @@ Then just ask your agent: *"share this session"* or *"find my session about X."*
 
 This talks to a small hosted backend. When you **share** a session, its full transcript becomes
 readable and pullable by **anyone with the link** — treat a share link like a public paste. Captured
-sessions are private to your (anonymous) token until you share them, secrets are scrubbed before
-storage, and hosted copies expire after ~30 days. This is a personal project shared as-is (see the
+sessions are private to your (anonymous) token until you share them, and hosted copies expire after
+~30 days. Obvious key shapes (`sk-ant-…`, `sk-…`, `gwk_live_…`, `AKIA…`, `Bearer …`) are scrubbed on
+your machine before upload, and again server-side — but pattern-matching only catches what it
+recognises, so it is a backstop, not a guarantee. This is a personal project shared as-is (see the
 LICENSE) with no warranty — don't put anything you couldn't paste into a public gist.
 
 Point it at a different backend with `SESSIONS_MCP_URL` if you run your own.

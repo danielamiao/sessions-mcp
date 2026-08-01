@@ -12,6 +12,11 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { localSessions } from "./logs.js";
 import * as api from "./api.js";
+import { assertSupportedRuntime } from "./runtime.js";
+
+// Before any dispatch below — the MCP server and both hook modes all need the network, so an
+// unusable runtime should stop here rather than surface later as an empty result.
+assertSupportedRuntime();
 
 /** Minimum wall-clock gap before re-uploading a session that's still growing. A long-running session
  *  (one you never "end") is captured on first sight, then re-captured at most this often as it grows
