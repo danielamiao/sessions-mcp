@@ -16,6 +16,12 @@ You keep using Claude Code / Codex exactly as-is.
 **Needs:** `node` ≥ 18, `bash`, `curl`, and at least one of Claude Code / Codex / mo. macOS and Linux.
 (macOS's stock bash 3.2 is fine. On Alpine, `apk add bash curl` first — neither ships by default.)
 
+Don't assume your agent already brought node: Claude Code's native install and mo are standalone
+binaries, so only an npm-installed Codex guarantees it. The server needs node at *runtime* too — it
+runs on every session, not just at install. 18 is the floor because the client uses global `fetch`;
+the installer refuses anything older, since on node 16 it would install cleanly and then fail every
+upload from inside a hook where the error is never seen.
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/danielamiao/sessions-mcp/main/install.sh | bash
 ```

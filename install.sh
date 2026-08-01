@@ -20,7 +20,29 @@ RAW_URL="${SESSIONS_MCP_RAW_URL:-https://raw.githubusercontent.com/danielamiao/s
 PREFIX="${SESSIONS_MCP_HOME:-$HOME/.sessions-mcp}"
 BUNDLE="$PREFIX/sessions-mcp.mjs"
 
-command -v node >/dev/null || { echo "node not found on PATH (the server runs on node, needs >=18)"; exit 1; }
+command -v node >/dev/null || {
+  echo "node not found on PATH — the server runs on node 18+."
+  echo "  macOS:  brew install node       Debian/Ubuntu:  sudo apt install nodejs"
+  echo "  or see https://nodejs.org/en/download"
+  exit 1
+}
+# Version, not just presence. Node 18 is the floor because the client uses global `fetch`, which
+# doesn't exist before it — and the failure is invisible: on node 16 the install succeeds, the hook
+# runs, prints its usual "captured N session(s)" line, and every upload dies on
+# `ReferenceError: fetch is not defined` inside a hook whose output nobody sees. Refuse up front
+# rather than let capture silently do nothing forever.
+NODE_VERSION="$(node -v 2>/dev/null || echo "")"   # e.g. v20.9.0
+NODE_MAJOR="${NODE_VERSION#v}"; NODE_MAJOR="${NODE_MAJOR%%.*}"
+case "$NODE_MAJOR" in
+  ''|*[!0-9]*)
+    echo "couldn't read a version from 'node -v' (got: ${NODE_VERSION:-nothing}) — needs node 18+"; exit 1 ;;
+  *)
+    if [ "$NODE_MAJOR" -lt 18 ]; then
+      echo "node $NODE_VERSION is too old — needs 18+ (the client uses global fetch, added in 18)."
+      echo "  Installing on an older node appears to work and then captures nothing, so stopping here."
+      exit 1
+    fi ;;
+esac
 
 # Which harnesses are present decides which steps run. Requiring Claude Code would refuse to install
 # on a Codex-only or mo-only machine, even though both are supported — so each harness is wired only
