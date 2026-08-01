@@ -20,10 +20,19 @@ RAW_URL="${SESSIONS_MCP_RAW_URL:-https://raw.githubusercontent.com/danielamiao/s
 PREFIX="${SESSIONS_MCP_HOME:-$HOME/.sessions-mcp}"
 BUNDLE="$PREFIX/sessions-mcp.mjs"
 
+# Printed by both the missing-node and too-old-node paths — the second is where someone lands after
+# following bad advice, so it needs the same guidance. Deliberately does NOT say `apt install nodejs`:
+# Ubuntu 22.04 LTS still ships node 12, so that command "succeeds" and lands you right back at the
+# version check below.
+node_install_help() {
+  echo "  macOS:          brew install node"
+  echo "  Linux:          https://github.com/nodesource/distributions  (distro packages are often"
+  echo "                  too old — Ubuntu 22.04 still ships node 12)"
+  echo "  any platform:   nvm — https://github.com/nvm-sh/nvm, then: nvm install --lts"
+}
 command -v node >/dev/null || {
   echo "node not found on PATH — the server runs on node 18+."
-  echo "  macOS:  brew install node       Debian/Ubuntu:  sudo apt install nodejs"
-  echo "  or see https://nodejs.org/en/download"
+  node_install_help
   exit 1
 }
 # Version, not just presence. Node 18 is the floor because the client uses global `fetch`, which
@@ -40,6 +49,7 @@ case "$NODE_MAJOR" in
     if [ "$NODE_MAJOR" -lt 18 ]; then
       echo "node $NODE_VERSION is too old — needs 18+ (the client uses global fetch, added in 18)."
       echo "  Installing on an older node appears to work and then captures nothing, so stopping here."
+      node_install_help
       exit 1
     fi ;;
 esac
